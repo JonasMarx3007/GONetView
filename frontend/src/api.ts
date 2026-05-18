@@ -24,10 +24,6 @@ type OntologyManifest = {
   };
 };
 
-type LegacyOntologyIndex = OntologyManifest & {
-  terms: RawTerm[];
-};
-
 type AnnotationManifest = {
   organism: Organism;
   dateGenerated: string | null;
@@ -47,15 +43,6 @@ type GeneSearchRecord = GeneRecord & {
 
 type TermSearchRecord = GOTerm & {
   search: string;
-};
-
-type LegacyAnnotationIndex = {
-  organism: Organism;
-  dateGenerated: string | null;
-  genes: GeneRecord[];
-  termToGenes: Record<string, string[]>;
-  geneToTerms: Record<string, string[]>;
-  aliases: Record<string, string[]>;
 };
 
 const BASE_PATH = normalizeBasePath(import.meta.env.VITE_BASE_PATH ?? import.meta.env.BASE_URL ?? "/");
@@ -536,12 +523,9 @@ export async function fetchFocusedGraph(
 }
 
 async function loadOntology(): Promise<BrowserOntology> {
-  ontologyPromise ??= fetchJson<OntologyManifest>(`${DATA_BASE}/go/manifest.json`)
-    .then(async (manifest) => new BrowserOntology(manifest, await fetchJsonCached<RawTerm[]>(dataUrl(manifest.files.terms), manifest.generatedAt)))
-    .catch(async () => {
-      const legacy = await fetchJsonCached<LegacyOntologyIndex>(`${DATA_BASE}/go-index.json`, "legacy");
-      return new BrowserOntology(legacy, legacy.terms);
-    });
+  ontologyPromise ??= fetchJson<OntologyManifest>(`${DATA_BASE}/go/manifest.json`).then(
+    async (manifest) => new BrowserOntology(manifest, await fetchJsonCached<RawTerm[]>(dataUrl(manifest.files.terms), manifest.generatedAt)),
+  );
   return ontologyPromise;
 }
 
@@ -550,42 +534,10 @@ async function loadAnnotations(organism: string): Promise<BrowserAnnotations> {
   if (!annotationPromises.has(key)) {
     annotationPromises.set(
       key,
-      fetchJson<AnnotationManifest>(`${DATA_BASE}/annotations/${key}/manifest.json`)
-        .then((manifest) => new BrowserAnnotations(manifest))
-        .catch(async () => {
-          const legacy = await fetchJsonCached<LegacyAnnotationIndex>(`${DATA_BASE}/annotations/${key}.json`, "legacy");
-          return legacyAnnotations(key, legacy);
-        }),
+      fetchJson<AnnotationManifest>(`${DATA_BASE}/annotations/${key}/manifest.json`).then((manifest) => new BrowserAnnotations(manifest)),
     );
   }
   return annotationPromises.get(key) as Promise<BrowserAnnotations>;
-}
-
-function legacyAnnotations(key: string, legacy: LegacyAnnotationIndex): BrowserAnnotations {
-  const manifest: AnnotationManifest = {
-    organism: legacy.organism,
-    dateGenerated: legacy.dateGenerated,
-    generatedAt: "legacy",
-    files: {
-      genes: `annotations/${key}.legacy.genes`,
-      geneSearch: `annotations/${key}.legacy.gene-search`,
-      termToGenes: `annotations/${key}.legacy.term-to-genes`,
-      geneToTerms: `annotations/${key}.legacy.gene-to-terms`,
-      aliases: `annotations/${key}.legacy.aliases`,
-    },
-  };
-  const annotations = new BrowserAnnotations(manifest);
-  annotations.genesPromise = Promise.resolve(legacy.genes);
-  annotations.geneSearchPromise = Promise.resolve(
-    legacy.genes.map((gene) => ({
-      ...gene,
-      search: `${gene.symbol} ${gene.objectId} ${gene.db}:${gene.objectId} ${gene.name}`.toLowerCase(),
-    })),
-  );
-  annotations.termToGenesPromise = Promise.resolve(legacy.termToGenes);
-  annotations.geneToTermsPromise = Promise.resolve(legacy.geneToTerms);
-  annotations.aliasesPromise = Promise.resolve(legacy.aliases);
-  return annotations;
 }
 
 function stripGeneSearch(record: GeneSearchRecord): GeneRecord {

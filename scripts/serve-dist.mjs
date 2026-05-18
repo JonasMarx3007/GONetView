@@ -4,7 +4,9 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 
 const root = resolve("frontend", "dist");
 const host = process.env.HOST ?? "127.0.0.1";
-const port = Number(process.env.PORT ?? 5174);
+const preferredPort = Number(process.env.PORT ?? 5174);
+const fixedPort = Boolean(process.env.PORT);
+let currentPort = preferredPort;
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -14,8 +16,8 @@ const contentTypes = {
   ".svg": "image/svg+xml",
 };
 
-createServer((request, response) => {
-  const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+const server = createServer((request, response) => {
+  const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${currentPort}`}`);
   const pathname = decodeURIComponent(url.pathname);
   const normalized = normalize(pathname).replace(/^([/\\])+/, "");
   const candidate = resolve(root, normalized);
@@ -40,9 +42,26 @@ createServer((request, response) => {
     "Cache-Control": "no-cache",
   });
   createReadStream(useGzip ? gzipFile : file).pipe(response);
-}).listen(port, host, () => {
-  console.log(`GONetView preview: http://${host}:${port}/`);
 });
+
+listen(preferredPort);
+
+function listen(port) {
+  currentPort = port;
+  server.once("error", (error) => {
+    if (error.code === "EADDRINUSE" && !fixedPort) {
+      console.warn(`Port ${port} is already in use, trying ${port + 1}...`);
+      listen(port + 1);
+      return;
+    }
+    console.error(error.message);
+    process.exit(1);
+  });
+
+  server.listen(port, host, () => {
+    console.log(`GONetView preview: http://${host}:${port}/`);
+  });
+}
 
 function resolveFile(candidate) {
   if (existsSync(candidate) && statSync(candidate).isFile()) {
