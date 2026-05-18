@@ -18,6 +18,7 @@ type GraphPaneProps = {
   autoRefreshPending: boolean;
   graphSearch: string;
   searchMatchIds: Set<string>;
+  activeSearchMatchId: string;
   canvasRef: RefObject<HTMLDivElement | null>;
   svgRef: RefObject<SVGSVGElement | null>;
   loading: boolean;
@@ -45,6 +46,7 @@ export function GraphPane({
   autoRefreshPending,
   graphSearch,
   searchMatchIds,
+  activeSearchMatchId,
   canvasRef,
   svgRef,
   loading,
@@ -118,11 +120,14 @@ export function GraphPane({
               {laidOut.nodes.map((node) => (
                 <g
                   key={node.id}
-                  className={`go-node ${namespaceClass(node.namespace)} ${selectedTerms.includes(node.id) ? "selected" : ""} ${searchMatchIds.has(node.id) ? "search-hit" : ""} ${node.obsolete ? "obsolete" : ""}`}
+                  className={`go-node ${namespaceClass(node.namespace)} ${selectedTerms.includes(node.id) ? "selected" : ""} ${searchMatchIds.has(node.id) ? "search-hit" : ""} ${activeSearchMatchId === node.id ? "active-search-hit" : ""} ${node.obsolete ? "obsolete" : ""}`}
                   transform={`translate(${node.x}, ${node.y})`}
                   onClick={() => onSelectNode(node.id)}
                   onDoubleClick={() => onOpenNode(node.id)}
                 >
+                  {searchMatchIds.has(node.id) && (
+                    <rect className="search-ring" x={-7} y={-7} width={node.width + 14} height={node.height + 14} rx={7} />
+                  )}
                   <rect className="body" width={node.width} height={node.height} />
                   <rect className="header" width={node.width} height={30} />
                   <text className="id" x={node.width / 2} y={21}>

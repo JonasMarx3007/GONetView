@@ -218,6 +218,77 @@ select {
   line-height: 1.35;
 }
 
+.graph-find-field {
+  gap: 7px;
+}
+
+.graph-find-box {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 54px repeat(3, 30px);
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  border: 1px solid #c8d1d8;
+  border-radius: 6px;
+  padding: 5px 6px 5px 10px;
+  background: #fff;
+}
+
+.graph-find-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 120, 148, 0.12);
+}
+
+.graph-find-box svg {
+  color: #667680;
+}
+
+.graph-find-box input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #182026;
+}
+
+.graph-find-box button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #43515c;
+}
+
+.graph-find-box button:hover:not(:disabled) {
+  border-color: #c8d1d8;
+  background: #eef7f9;
+  color: var(--accent);
+}
+
+.graph-find-box button:disabled {
+  cursor: default;
+  color: #b6c0c7;
+}
+
+.find-count {
+  min-width: 48px;
+  color: #3d4a54;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-count.empty {
+  color: #b42318;
+}
+
 select {
   border: 1px solid #c8d1d8;
   border-radius: 6px;
@@ -648,9 +719,8 @@ output {
 }
 
 .reference-links {
-  margin-top: auto;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
+  display: grid;
+  gap: 8px;
 }
 
 .reference-links h2,
@@ -664,7 +734,6 @@ output {
 }
 
 .reference-links p {
-  margin-top: 8px;
   color: #4f5b63;
   font-size: 13px;
   line-height: 1.45;
@@ -865,7 +934,8 @@ output {
 }
 
 .go-node .body,
-.go-node .header {
+.go-node .header,
+.go-node .search-ring {
   transition: filter 0.16s ease, stroke-width 0.16s ease;
 }
 
@@ -885,6 +955,14 @@ output {
   stroke-width: 2.8;
 }
 
+.go-node .search-ring {
+  fill: rgba(255, 211, 71, 0.3);
+  stroke: #ffb000;
+  stroke-width: 4.8;
+  filter: drop-shadow(0 0 13px rgba(255, 176, 0, 0.62));
+  pointer-events: none;
+}
+
 .go-node.selected .body {
   fill: #fff8cc;
   stroke: #d29a19;
@@ -892,14 +970,23 @@ output {
 }
 
 .go-node.search-hit .body {
-  stroke: #0a7894;
-  stroke-width: 4.2;
-  filter: drop-shadow(0 0 9px rgba(10, 120, 148, 0.28));
+  stroke: #ffb000;
+  stroke-width: 4.6;
+  filter: drop-shadow(0 0 12px rgba(255, 176, 0, 0.38));
 }
 
-.go-node.selected.search-hit .body {
-  stroke: #0a7894;
-  stroke-width: 4.6;
+.go-node.active-search-hit .search-ring {
+  fill: rgba(255, 211, 71, 0.44);
+  stroke: #111827;
+  stroke-width: 6.6;
+  filter: drop-shadow(0 0 17px rgba(255, 176, 0, 0.72));
+}
+
+.go-node.selected.search-hit .body,
+.go-node.active-search-hit .body {
+  fill: #fff2a8;
+  stroke: #ffb000;
+  stroke-width: 5.2;
 }
 
 .go-node.obsolete.selected .body {

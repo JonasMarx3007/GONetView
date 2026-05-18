@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Clipboard,
   Download,
   FileJson,
@@ -10,10 +11,11 @@ import {
   PanelLeftOpen,
   RotateCcw,
   Search,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import type { FitMode } from "../hooks/useGraphAutoFit";
 import type { InputMode } from "../inputParsing";
 import type { LayoutMode } from "../layout";
@@ -31,6 +33,8 @@ type SidebarProps = {
   namespace: string;
   layoutMode: LayoutMode;
   graphSearch: string;
+  graphSearchMatchCount: number;
+  activeGraphSearchIndex: number;
   scale: number;
   fitMode: FitMode;
   ancestors: number;
@@ -59,6 +63,9 @@ type SidebarProps = {
   onNamespaceChange: (value: string) => void;
   onLayoutModeChange: (value: LayoutMode) => void;
   onGraphSearchChange: (value: string) => void;
+  onGraphSearchPrevious: () => void;
+  onGraphSearchNext: () => void;
+  onGraphSearchClear: () => void;
   onFitModeChange: (value: FitMode) => void;
   onAncestorsChange: (value: number) => void;
   onDescendantsChange: (value: number) => void;
@@ -80,15 +87,16 @@ type SidebarProps = {
   onChooseGene: (gene: GeneRecord) => void;
 };
 
-type SectionKey = "input" | "scope" | "layout" | "relations" | "export" | "details";
+type SectionKey = "input" | "scope" | "layout" | "relations" | "details" | "export" | "references";
 
 const DEFAULT_SECTIONS: Record<SectionKey, boolean> = {
   input: true,
   scope: true,
   layout: true,
   relations: false,
-  export: false,
   details: true,
+  export: false,
+  references: false,
 };
 
 export function Sidebar({
@@ -101,6 +109,8 @@ export function Sidebar({
   namespace,
   layoutMode,
   graphSearch,
+  graphSearchMatchCount,
+  activeGraphSearchIndex,
   scale,
   fitMode,
   ancestors,
@@ -129,6 +139,9 @@ export function Sidebar({
   onNamespaceChange,
   onLayoutModeChange,
   onGraphSearchChange,
+  onGraphSearchPrevious,
+  onGraphSearchNext,
+  onGraphSearchClear,
   onFitModeChange,
   onAncestorsChange,
   onDescendantsChange,
@@ -150,11 +163,58 @@ export function Sidebar({
   onChooseGene,
 }: SidebarProps) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
+  const detailsSectionRef = useRef<HTMLElement | null>(null);
+  const detailsHeaderRef = useRef<HTMLButtonElement | null>(null);
+  const graphSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const previousDetailIdRef = useRef(selectedTerm?.id ?? "");
   const suggestions = inputMode === "go" ? termSuggestions : geneSuggestions;
 
   function toggleSection(key: SectionKey) {
     setSections((current) => ({ ...current, [key]: !current[key] }));
   }
+
+  useEffect(() => {
+    const nextDetailId = selectedTerm?.id ?? "";
+    if (!nextDetailId || previousDetailIdRef.current === nextDetailId) {
+      return;
+    }
+
+    const hadPreviousDetail = Boolean(previousDetailIdRef.current);
+    previousDetailIdRef.current = nextDetailId;
+    if (!hadPreviousDetail) {
+      return;
+    }
+
+    setSections((current) => ({ ...current, details: true }));
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        detailsSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        detailsHeaderRef.current?.focus({ preventScroll: true });
+      });
+    });
+  }, [selectedTerm?.id]);
+
+  useEffect(() => {
+    function handleFindShortcut(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "f") {
+        return;
+      }
+      event.preventDefault();
+      if (!expanded) {
+        onToggleExpanded();
+      }
+      setSections((current) => ({ ...current, layout: true }));
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          graphSearchInputRef.current?.focus();
+          graphSearchInputRef.current?.select();
+        });
+      });
+    }
+
+    window.addEventListener("keydown", handleFindShortcut);
+    return () => window.removeEventListener("keydown", handleFindShortcut);
+  }, [expanded, onToggleExpanded]);
 
   return (
     <aside className={`sidebar ${expanded ? "" : "collapsed"}`.trim()}>
@@ -292,18 +352,17 @@ export function Sidebar({
               </div>
             </div>
 
-            <label className="field">
-              <span>Graph search</span>
-              <div className="search-box compact">
-                <Search size={16} />
-                <input value={graphSearch} onChange={(event) => onGraphSearchChange(event.target.value)} placeholder="GO ID or term name" />
+            <div className="field">
+              <span>Fit</span>
+              <div className="mode-toggle fit-toggle">
+                <button className={fitMode === "height" ? "active" : ""} onClick={() => onFitModeChange("height")}>
+                  Fit height
+                </button>
+                <button className={fitMode === "width" ? "active" : ""} onClick={() => onFitModeChange("width")}>
+                  Fit width
+                </button>
               </div>
-            </label>
-
-            <label className="check-row">
-              <input type="checkbox" checked={trimConnections} onChange={(event) => onTrimConnectionsChange(event.target.checked)} />
-              <span>Trim to selected paths</span>
-            </label>
+            </div>
 
             <div className="zoom-block">
               <div className="zoom-actions">
@@ -318,20 +377,28 @@ export function Sidebar({
                 </button>
                 <output className="zoom-value">{Math.round(scale * 100)}%</output>
               </div>
-              <div className="mode-toggle fit-toggle">
-                <button className={fitMode === "height" ? "active" : ""} onClick={() => onFitModeChange("height")}>
-                  Fit height
-                </button>
-                <button className={fitMode === "width" ? "active" : ""} onClick={() => onFitModeChange("width")}>
-                  Fit width
-                </button>
-              </div>
             </div>
+
+            <label className="check-row">
+              <input type="checkbox" checked={trimConnections} onChange={(event) => onTrimConnectionsChange(event.target.checked)} />
+              <span>Trim to selected paths</span>
+            </label>
 
             <label className="check-row">
               <input type="checkbox" checked={showLegend} onChange={(event) => onShowLegendChange(event.target.checked)} />
               <span>Show legend</span>
             </label>
+
+            <GraphFindControl
+              inputRef={graphSearchInputRef}
+              value={graphSearch}
+              matchCount={graphSearchMatchCount}
+              activeIndex={activeGraphSearchIndex}
+              onChange={onGraphSearchChange}
+              onPrevious={onGraphSearchPrevious}
+              onNext={onGraphSearchNext}
+              onClear={onGraphSearchClear}
+            />
           </SidebarSection>
 
           <SidebarSection title="Relations" open={sections.relations} onToggle={() => toggleSection("relations")}>
@@ -344,6 +411,37 @@ export function Sidebar({
                 </label>
               ))}
             </div>
+          </SidebarSection>
+
+          <SidebarSection
+            title="Details"
+            open={sections.details}
+            onToggle={() => toggleSection("details")}
+            sectionRef={detailsSectionRef}
+            headerRef={detailsHeaderRef}
+          >
+            {stats && (
+              <dl className="stats">
+                <div>
+                  <dt>Terms</dt>
+                  <dd>{stats.terms.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt>is_a edges</dt>
+                  <dd>{stats.edges.toLocaleString()}</dd>
+                </div>
+              </dl>
+            )}
+
+            {selectedTerm && (
+              <TermDetail
+                selectedTerm={selectedTerm}
+                detailGeneCount={detailGeneCount}
+                detailGenes={detailGenes}
+                showDescendantGenes={showDescendantGenes}
+                onShowDescendantGenesChange={onShowDescendantGenesChange}
+              />
+            )}
           </SidebarSection>
 
           <SidebarSection title="Export" open={sections.export} onToggle={() => toggleSection("export")}>
@@ -379,32 +477,8 @@ export function Sidebar({
             {copyStatus && <div className="status-pill">{copyStatus}</div>}
           </SidebarSection>
 
-          <SidebarSection title="Details" open={sections.details} onToggle={() => toggleSection("details")}>
-            {stats && (
-              <dl className="stats">
-                <div>
-                  <dt>Terms</dt>
-                  <dd>{stats.terms.toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt>is_a edges</dt>
-                  <dd>{stats.edges.toLocaleString()}</dd>
-                </div>
-              </dl>
-            )}
-
-            {selectedTerm && (
-              <TermDetail
-                selectedTerm={selectedTerm}
-                detailGeneCount={detailGeneCount}
-                detailGenes={detailGenes}
-                showDescendantGenes={showDescendantGenes}
-                onShowDescendantGenesChange={onShowDescendantGenesChange}
-              />
-            )}
-
+          <SidebarSection title="References" open={sections.references} onToggle={() => toggleSection("references")}>
             <section className="reference-links">
-              <h2>References</h2>
               <p>
                 GONetView is based on the Gene Ontology browsers{" "}
                 <a href="https://amigo.geneontology.org/amigo" target="_blank" rel="noreferrer">
@@ -428,21 +502,88 @@ function SidebarSection({
   title,
   open,
   onToggle,
+  sectionRef,
+  headerRef,
   children,
 }: {
   title: string;
   open: boolean;
   onToggle: () => void;
+  sectionRef?: Ref<HTMLElement>;
+  headerRef?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
   return (
-    <section className={`sidebar-section ${open ? "open" : ""}`.trim()}>
-      <button type="button" className="section-header" onClick={onToggle} aria-expanded={open}>
+    <section ref={sectionRef} className={`sidebar-section ${open ? "open" : ""}`.trim()}>
+      <button ref={headerRef} type="button" className="section-header" onClick={onToggle} aria-expanded={open}>
         <span>{title}</span>
         {open ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
       </button>
       {open && <div className="section-body">{children}</div>}
     </section>
+  );
+}
+
+function GraphFindControl({
+  inputRef,
+  value,
+  matchCount,
+  activeIndex,
+  onChange,
+  onPrevious,
+  onNext,
+  onClear,
+}: {
+  inputRef: Ref<HTMLInputElement>;
+  value: string;
+  matchCount: number;
+  activeIndex: number;
+  onChange: (value: string) => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onClear: () => void;
+}) {
+  const hasQuery = value.trim().length > 0;
+  const hasHits = hasQuery && matchCount > 0 && activeIndex >= 0;
+  const counter = hasQuery ? (hasHits ? `${activeIndex + 1}/${matchCount}` : "0/0") : "";
+
+  return (
+    <label className="field graph-find-field">
+      <span>Graph search</span>
+      <div className="graph-find-box">
+        <Search size={15} />
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              if (event.shiftKey) {
+                onPrevious();
+              } else {
+                onNext();
+              }
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onClear();
+            }
+          }}
+          placeholder="GO ID or term name"
+        />
+        <output className={`find-count ${hasQuery && !hasHits ? "empty" : ""}`.trim()}>{counter}</output>
+        <button type="button" title="Previous hit" aria-label="Previous graph search hit" onClick={onPrevious} disabled={!hasHits}>
+          <ChevronUp size={16} />
+        </button>
+        <button type="button" title="Next hit" aria-label="Next graph search hit" onClick={onNext} disabled={!hasHits}>
+          <ChevronDown size={16} />
+        </button>
+        <button type="button" title="Clear search" aria-label="Clear graph search" onClick={onClear} disabled={!hasQuery}>
+          <X size={16} />
+        </button>
+      </div>
+    </label>
   );
 }
 

@@ -8,7 +8,7 @@ import { useGraphLayout } from "./hooks/useGraphLayout";
 import { useSuggestions } from "./hooks/useSuggestions";
 import { useTermGenes } from "./hooks/useTermGenes";
 import { isAutoRefreshInputReady, parseGenes, parseTerms, replaceActiveSearchToken, type InputMode } from "./inputParsing";
-import type { LayoutMode } from "./layout";
+import type { LayoutMode, PositionedNode } from "./layout";
 import { DEFAULT_RELATIONS } from "./theme";
 import type { GeneRecord, GOTerm, GraphResponse, Organism, StatsResponse } from "./types";
 import { readUrlState, writeUrlState } from "./urlState";
@@ -18,6 +18,8 @@ const CONTROL_AUTO_REFRESH_DELAY_MS = 260;
 const INPUT_AUTO_REFRESH_DELAY_MS = 720;
 const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 2.25;
+const SEARCH_FOCUS_MIN_ZOOM = 1.05;
+const SVG_CANVAS_MARGIN = 18;
 const initialUrlState = readUrlState();
 const initialInputMode = initialUrlState.inputMode ?? "go";
 const initialQuery = initialUrlState.query ?? DEFAULT_TERM;
@@ -53,6 +55,7 @@ export function App() {
   const [fitMode, setFitMode] = useState<FitMode>(initialUrlState.fitMode ?? "height");
   const [trimConnections, setTrimConnections] = useState(initialUrlState.trimConnections ?? false);
   const [graphSearch, setGraphSearch] = useState(initialUrlState.graphSearch ?? "");
+  const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [scale, setScale] = useState(0.82);
 
@@ -93,17 +96,56 @@ export function App() {
   const maxAncestorDepth = stats?.maxAncestorDepth ?? graph?.maxAncestorDepth ?? 1;
   const maxDescendantDepth = stats?.maxDescendantDepth ?? graph?.maxDescendantDepth ?? 1;
   const selectedRelationsKey = selectedRelations.join("|");
-  const graphSearchMatchIds = useMemo(() => {
+  const graphSearchMatches = useMemo(() => {
     const normalized = graphSearch.trim().toLowerCase();
     if (!normalized || !laidOut) {
-      return new Set<string>();
+      return [];
     }
-    return new Set(
-      laidOut.nodes
-        .filter((node) => `${node.id} ${node.name} ${node.namespace}`.toLowerCase().includes(normalized))
-        .map((node) => node.id),
-    );
+    return [...laidOut.nodes]
+      .filter((node) => `${node.id} ${node.name} ${node.namespace}`.toLowerCase().includes(normalized))
+      .sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id));
   }, [graphSearch, laidOut]);
+  const graphSearchMatchIds = useMemo(() => new Set(graphSearchMatches.map((node) => node.id)), [graphSearchMatches]);
+  const activeSearchMatch = activeSearchIndex >= 0 ? graphSearchMatches[activeSearchIndex] : undefined;
+
+  useEffect(() => {
+    setActiveSearchIndex(graphSearchMatches.length > 0 ? 0 : -1);
+  }, [graphSearch, graphSearchMatches.length]);
+
+  useEffect(() => {
+    if (!activeSearchMatch || loading || buildingConnections || layouting) {
+      return;
+    }
+    focusGraphNode(activeSearchMatch);
+  }, [activeSearchMatch?.id, loading, buildingConnections, layouting]);
+
+  function focusGraphNode(node: PositionedNode) {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const nextScale = Math.min(MAX_ZOOM, Math.max(scale, SEARCH_FOCUS_MIN_ZOOM));
+    if (nextScale !== scale) {
+      setScale(nextScale);
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const left = Math.max(0, (node.x + node.width / 2) * nextScale + SVG_CANVAS_MARGIN - canvas.clientWidth / 2);
+        const top = Math.max(0, (node.y + node.height / 2) * nextScale + SVG_CANVAS_MARGIN - canvas.clientHeight / 2);
+        canvas.scrollTo({ left, top, behavior: "smooth" });
+      });
+    });
+  }
+
+  function navigateGraphSearch(direction: 1 | -1) {
+    setActiveSearchIndex((current) => {
+      if (graphSearchMatches.length === 0) {
+        return -1;
+      }
+      const base = current >= 0 ? current : 0;
+      return (base + direction + graphSearchMatches.length) % graphSearchMatches.length;
+    });
+  }
 
   useEffect(() => {
     fetchStats().then(setStats).catch((err: Error) => setError(err.message));
@@ -404,6 +446,8 @@ export function App() {
         namespace={namespace}
         layoutMode={layoutMode}
         graphSearch={graphSearch}
+        graphSearchMatchCount={graphSearchMatches.length}
+        activeGraphSearchIndex={activeSearchIndex}
         scale={scale}
         fitMode={fitMode}
         ancestors={ancestors}
@@ -432,6 +476,9 @@ export function App() {
         onNamespaceChange={setNamespace}
         onLayoutModeChange={setLayoutMode}
         onGraphSearchChange={setGraphSearch}
+        onGraphSearchPrevious={() => navigateGraphSearch(-1)}
+        onGraphSearchNext={() => navigateGraphSearch(1)}
+        onGraphSearchClear={() => setGraphSearch("")}
         onFitModeChange={setFitMode}
         onAncestorsChange={setAncestors}
         onDescendantsChange={setDescendants}
@@ -464,6 +511,7 @@ export function App() {
         autoRefreshPending={autoRefreshPending}
         graphSearch={graphSearch}
         searchMatchIds={graphSearchMatchIds}
+        activeSearchMatchId={activeSearchMatch?.id ?? ""}
         canvasRef={canvasRef}
         svgRef={svgRef}
         loading={loading}
