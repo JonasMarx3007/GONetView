@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-build",
+    "rootDir": "src",
+    "module": "ES2022",
+    "moduleResolution": "Node",
+    "isolatedModules": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/api.ts",
+    "src/dataCache.ts",
+    "src/exportFigure.ts",
+    "src/graphConnections.ts",
+    "src/graphSearch.ts",
+    "src/inputParsing.ts",
+    "src/layout.ts",
+    "src/theme.ts",
+    "src/types.ts",
+    "src/urlState.ts"
+  ]
+}

@@ -1,4 +1,5 @@
 import {
+  Bookmark,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -16,6 +17,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import { APP_VERSION } from "../appInfo";
+import { SAVED_EXAMPLES } from "../examples";
 import type { FitMode } from "../hooks/useGraphAutoFit";
 import type { InputMode } from "../inputParsing";
 import type { LayoutMode } from "../layout";
@@ -224,7 +227,7 @@ export function Sidebar({
           {expanded && (
             <div>
               <h1>GONetView</h1>
-              <p>{stats?.dataVersion ?? "Gene Ontology"}</p>
+              <p>v{APP_VERSION} · {stats?.dataVersion ?? "Gene Ontology"}</p>
             </div>
           )}
         </div>
@@ -295,6 +298,15 @@ export function Sidebar({
                 <GitBranch size={17} />
                 {inputMode === "go" ? "Map terms" : "Map genes"}
               </button>
+            </div>
+            <div className="example-links" aria-label="Saved examples">
+              <span>Examples</span>
+              {SAVED_EXAMPLES.map((example) => (
+                <a key={example.id} href={`?${example.search}`} title={example.summary}>
+                  <Bookmark size={14} />
+                  {example.label}
+                </a>
+              ))}
             </div>
             {autoRefreshPending && <div className="status-pill">Updating soon</div>}
           </SidebarSection>

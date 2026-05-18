@@ -45,7 +45,15 @@ type TermSearchRecord = GOTerm & {
   search: string;
 };
 
-const BASE_PATH = normalizeBasePath(import.meta.env.VITE_BASE_PATH ?? import.meta.env.BASE_URL ?? "/");
+type RuntimeImportMeta = ImportMeta & {
+  env?: {
+    VITE_BASE_PATH?: string;
+    BASE_URL?: string;
+  };
+};
+
+const importEnv = (import.meta as RuntimeImportMeta).env ?? {};
+const BASE_PATH = normalizeBasePath(importEnv.VITE_BASE_PATH ?? importEnv.BASE_URL ?? "/");
 const DATA_BASE = `${BASE_PATH}/data`;
 const DEFAULT_TERM = "GO:0019319";
 const DEFAULT_ORGANISM = "goa_human";
@@ -212,7 +220,10 @@ class BrowserOntology {
   ): { nodes: RawTerm[]; edges: GOEdge[]; selectedTerms: string[]; missingTerms: string[]; truncated: boolean } {
     const { valid: requested, missing } = this.normalizeTerms(values, includeObsolete);
     if (requested.length === 0) {
-      throw new Error(missing.length > 0 ? "None of the entered GO terms exist in the current ontology" : "At least one GO term is required");
+      const missingText = missing.length > 0 ? ` Missing input: ${missing.join(", ")}.` : "";
+      throw new Error(
+        `No entered GO terms were found in the current ontology.${missingText} Check GO IDs or term names; enable obsolete terms if needed.`,
+      );
     }
 
     const relationFilter = unique(relations.length > 0 ? relations : ["is_a"]);
@@ -353,7 +364,7 @@ class BrowserAnnotations {
       .map(([, record]) => stripGeneSearch(record));
   }
 
-  async resolveGenes(values: string[]): Promise<{ genes: GeneRecord[]; terms: string[]; missing: string[] }> {
+  async resolveGenes(values: string[]): Promise<{ genes: GeneRecord[]; terms: string[]; missing: string[]; genesWithoutTerms: GeneRecord[] }> {
     const [aliases, geneToTerms] = await Promise.all([this.aliases(), this.geneToTerms()]);
     const geneKeys: string[] = [];
     const missing: string[] = [];
@@ -369,13 +380,23 @@ class BrowserAnnotations {
     }
 
     const terms: string[] = [];
+    const genesWithoutTermKeys: string[] = [];
     for (const key of geneKeys) {
-      for (const term of geneToTerms[key] ?? []) {
+      const keyTerms = geneToTerms[key] ?? [];
+      if (keyTerms.length === 0) {
+        pushUnique(genesWithoutTermKeys, key);
+      }
+      for (const term of keyTerms) {
         pushUnique(terms, term);
       }
     }
 
-    return { genes: await this.recordsForKeys(geneKeys, geneKeys.length), terms, missing };
+    return {
+      genes: await this.recordsForKeys(geneKeys, geneKeys.length),
+      terms,
+      missing,
+      genesWithoutTerms: await this.recordsForKeys(genesWithoutTermKeys, genesWithoutTermKeys.length),
+    };
   }
 
   async recordsForTerms(termIds: string[], limit: number): Promise<{ geneCount: number; genes: GeneRecord[] }> {
@@ -439,7 +460,8 @@ class BrowserAnnotations {
 }
 
 export async function fetchStats(): Promise<StatsResponse> {
-  return (await loadOntology()).manifest.stats;
+  const manifest = (await loadOntology()).manifest;
+  return { ...manifest.stats, generatedAt: manifest.generatedAt };
 }
 
 export async function searchTerms(query: string, namespace: string, includeObsolete: boolean): Promise<GOTerm[]> {
@@ -486,8 +508,13 @@ export async function fetchFocusedGraph(
     annotations = await loadAnnotations(organism || DEFAULT_ORGANISM);
     geneResolution = await annotations.resolveGenes(values);
     if (geneResolution.terms.length === 0) {
-      const missing = geneResolution.missing.join(", ") || values.join(", ");
-      throw new Error(`No GO terms found for gene input: ${missing}`);
+      const organismLabel = annotations.manifest.organism.label;
+      if (geneResolution.genes.length === 0) {
+        const missing = geneResolution.missing.join(", ") || values.join(", ");
+        throw new Error(`No genes matched ${organismLabel}: ${missing}. Check the organism or use a gene symbol, gene ID, or database ID.`);
+      }
+      const withoutTerms = geneResolution.genesWithoutTerms.map((gene) => gene.symbol).join(", ") || values.join(", ");
+      throw new Error(`Genes were found but have no GO annotations in ${organismLabel}: ${withoutTerms}. Try another organism or gene list.`);
     }
     termValues = geneResolution.terms;
   } else if (organism) {
@@ -512,6 +539,7 @@ export async function fetchFocusedGraph(
     missingTerms: graph.missingTerms,
     selectedGenes: geneResolution?.genes,
     missingGenes: geneResolution?.missing,
+    genesWithoutTerms: geneResolution?.genesWithoutTerms,
     truncated: graph.truncated,
     organism: annotations?.manifest.organism,
     annotationDate: annotations?.manifest.dateGenerated,

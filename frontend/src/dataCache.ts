@@ -23,7 +23,7 @@ export async function fetchJsonCached<T>(url: string, version: string): Promise<
 }
 
 async function readCache<T>(key: string): Promise<T | undefined> {
-  if (!("indexedDB" in window)) {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
     return undefined;
   }
   try {
@@ -39,7 +39,7 @@ async function readCache<T>(key: string): Promise<T | undefined> {
 }
 
 async function writeCache(key: string, value: unknown): Promise<void> {
-  if (!("indexedDB" in window)) {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
     return;
   }
   try {

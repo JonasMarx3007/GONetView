@@ -2,6 +2,26 @@
 
 GONetView is a standalone, fully web-based Gene Ontology network viewer. It uses a Python preprocessing step to compile raw Gene Ontology and GAF annotation files into static browser indexes, then the React/TypeScript app runs entirely in the browser.
 
+![GONetView overview](docs/assets/gonetview-overview.png)
+
+## Open The App
+
+Use the hosted version:
+
+```text
+https://jonasmarx3007.github.io/GONetView/
+```
+
+Or run it locally with `.\run-dev.cmd`.
+
+## Why Use It
+
+- Explore GO term neighborhoods without running a backend service.
+- Search GO terms and organism-specific genes from static browser indexes.
+- Filter relation types and inspect connected term details.
+- Export figures as PNG or vector PDF.
+- Regenerate the complete browser dataset from bundled raw inputs.
+
 ## Architecture
 
 - `data/raw/go-basic.obo` and `data/raw/annotations/*.gaf.gz` are the raw ontology and annotation inputs.
@@ -10,6 +30,8 @@ GONetView is a standalone, fully web-based Gene Ontology network viewer. It uses
 - The script writes split static JSON indexes to `frontend/public/data/` and gzip sidecars for efficient hosting.
 - The React/TypeScript frontend loads those JSON files directly, caches large chunks in IndexedDB, and performs search, gene lookup, graph extraction, layout, and export in the browser.
 - The deployed app has no Python runtime and no API server.
+
+More detail is available in `docs/architecture.md`.
 
 ## Build Data
 
@@ -86,6 +108,54 @@ Preview the built static site locally:
 
 The preview server serves `.gz` sidecars when the browser supports gzip. Configure nginx or another production server to do the same for the generated `.json.gz` files.
 
+## Tests
+
+Run Python parser tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+Run frontend unit tests:
+
+```powershell
+npm.cmd --prefix frontend test
+```
+
+Run the browser smoke test:
+
+```powershell
+npm.cmd --prefix frontend exec playwright install chromium
+npm.cmd --prefix frontend run test:browser
+```
+
+Run the production build:
+
+```powershell
+npm.cmd --prefix frontend run build
+```
+
 ## Preprocessing Code
 
 `scripts/go_data/` contains the local parser code used to regenerate browser data from `data/raw/`.
+
+## Documentation
+
+- `docs/architecture.md` describes the code and data flow.
+- `docs/tutorial.md` walks through a reproducible human T-cell network example.
+- `docs/example-workflow.md` gives a short reproducible user workflow.
+- `docs/workflows.md` lists real-world workflow examples with stable query strings.
+- `docs/limitations.md` explains current boundaries and tradeoffs.
+- `data/raw/README.md` documents bundled raw data sources.
+
+## Citation
+
+Citation metadata is provided in `CITATION.cff`.
+
+## Contributing
+
+See `CONTRIBUTING.md` for setup, testing, issue, and pull request guidance.
+
+## License
+
+GONetView source code is released under the MIT License. See `LICENSE`.

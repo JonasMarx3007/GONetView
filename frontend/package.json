@@ -2,11 +2,21 @@
   "name": "gonetview-frontend",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JonasMarx3007/GONetView.git",
+    "directory": "frontend"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "test:compile": "tsc -p tsconfig.test.json && node scripts/patch-test-imports.mjs",
+    "test": "npm run test:compile && node --test test/*.test.mjs",
+    "test:browser": "node scripts/run-browser-test.mjs",
+    "docs:screenshots": "node scripts/capture-doc-screenshots.mjs"
   },
   "dependencies": {
     "elkjs": "^0.11.1",
@@ -15,9 +25,10 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
+    "@playwright/test": "^1.60.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.8.0",
     "vite": "^7.0.0"
   }

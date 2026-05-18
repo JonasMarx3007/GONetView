@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible problem in GONetView.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include GO terms, genes, organism, relation filters, and graph settings when relevant.
+      placeholder: |
+        1. Open ...
+        2. Enter ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, operating system, local or hosted app, and any console errors.
+    validations:
+      required: false

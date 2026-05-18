@@ -40,6 +40,7 @@ export type GraphResponse = {
   missingTerms?: string[];
   selectedGenes?: GeneRecord[];
   missingGenes?: string[];
+  genesWithoutTerms?: GeneRecord[];
   truncated: boolean;
   organism?: Organism;
   annotationDate?: string | null;
@@ -57,4 +58,5 @@ export type StatsResponse = {
   maxDescendantDepth: number;
   dataVersion: string | null;
   source: string;
+  generatedAt: string;
 };
