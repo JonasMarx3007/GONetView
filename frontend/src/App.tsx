@@ -15,6 +15,7 @@ import { readUrlState, writeUrlState } from "./urlState";
 
 const DEFAULT_TERM = "GO:0019319";
 const CONTROL_AUTO_REFRESH_DELAY_MS = 260;
+const RELATION_AUTO_REFRESH_DELAY_MS = 1200;
 const INPUT_AUTO_REFRESH_DELAY_MS = 720;
 const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 2.25;
@@ -72,6 +73,7 @@ export function App() {
   const graphRequestRef = useRef(0);
   const autoRefreshReadyRef = useRef(false);
   const autoRefreshValueKeyRef = useRef("");
+  const autoRefreshRelationsKeyRef = useRef("");
   const lastGraphSignatureRef = useRef("");
 
   const { termSuggestions, geneSuggestions, clearSuggestions } = useSuggestions({ query, inputMode, organism, includeObsolete });
@@ -179,6 +181,8 @@ export function App() {
     const valueKey = `${inputMode}:${values.join("\u0001")}`;
     const inputChanged = autoRefreshValueKeyRef.current !== valueKey;
     autoRefreshValueKeyRef.current = valueKey;
+    const relationsChanged = Boolean(autoRefreshRelationsKeyRef.current && autoRefreshRelationsKeyRef.current !== selectedRelationsKey);
+    autoRefreshRelationsKeyRef.current = selectedRelationsKey;
     if (inputChanged && !isAutoRefreshInputReady(inputMode, query)) {
       setAutoRefreshPending(false);
       return;
@@ -201,7 +205,7 @@ export function App() {
           silentErrors: inputChanged,
         });
       },
-      inputChanged ? INPUT_AUTO_REFRESH_DELAY_MS : CONTROL_AUTO_REFRESH_DELAY_MS,
+      inputChanged ? INPUT_AUTO_REFRESH_DELAY_MS : relationsChanged ? RELATION_AUTO_REFRESH_DELAY_MS : CONTROL_AUTO_REFRESH_DELAY_MS,
     );
     return () => {
       window.clearTimeout(autoRefreshTimer.current);
