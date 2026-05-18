@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchFocusedGraph, fetchOrganisms, fetchStats } from "./api";
+import { APP_NAME, APP_REPOSITORY_URL, APP_VERSION } from "./appInfo";
 import { GraphPane } from "./components/GraphPane";
 import { Sidebar } from "./components/Sidebar";
 import { exportFigure, exportMetadataJson } from "./exportFigure";
+import { findGraphSearchMatches, nextGraphSearchIndex } from "./graphSearch";
 import { useGraphAutoFit, type FitMode } from "./hooks/useGraphAutoFit";
 import { useGraphLayout } from "./hooks/useGraphLayout";
 import { useSuggestions } from "./hooks/useSuggestions";
@@ -95,17 +97,11 @@ export function App() {
   });
 
   const selectedTerm = graph?.nodes.find((node) => node.id === detailId);
-  const maxAncestorDepth = stats?.maxAncestorDepth ?? graph?.maxAncestorDepth ?? 1;
-  const maxDescendantDepth = stats?.maxDescendantDepth ?? graph?.maxDescendantDepth ?? 1;
+  const maxAncestorDepth = stats?.maxAncestorDepth ?? graph?.maxAncestorDepth ?? Math.max(ancestors, 1);
+  const maxDescendantDepth = stats?.maxDescendantDepth ?? graph?.maxDescendantDepth ?? Math.max(descendants, 1);
   const selectedRelationsKey = selectedRelations.join("|");
   const graphSearchMatches = useMemo(() => {
-    const normalized = graphSearch.trim().toLowerCase();
-    if (!normalized || !laidOut) {
-      return [];
-    }
-    return [...laidOut.nodes]
-      .filter((node) => `${node.id} ${node.name} ${node.namespace}`.toLowerCase().includes(normalized))
-      .sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id));
+    return findGraphSearchMatches(laidOut?.nodes, graphSearch);
   }, [graphSearch, laidOut]);
   const graphSearchMatchIds = useMemo(() => new Set(graphSearchMatches.map((node) => node.id)), [graphSearchMatches]);
   const activeSearchMatch = activeSearchIndex >= 0 ? graphSearchMatches[activeSearchIndex] : undefined;
@@ -141,11 +137,7 @@ export function App() {
 
   function navigateGraphSearch(direction: 1 | -1) {
     setActiveSearchIndex((current) => {
-      if (graphSearchMatches.length === 0) {
-        return -1;
-      }
-      const base = current >= 0 ? current : 0;
-      return (base + direction + graphSearchMatches.length) % graphSearchMatches.length;
+      return nextGraphSearchIndex(current, graphSearchMatches.length, direction);
     });
   }
 
@@ -323,9 +315,7 @@ export function App() {
         lastGraphSignatureRef.current = nextValues.length > 0 ? graphSignature(nextValues) : requestSignature;
         autoRefreshReadyRef.current = true;
         setQuery(nextQuery);
-        if (payload.missingTerms && payload.missingTerms.length > 0) {
-          setError(`Ignored missing GO terms: ${payload.missingTerms.join(", ")}`);
-        }
+        setError(graphWarnings(payload, organismLabel(organisms, organism), includeObsolete));
       })
       .catch((err: Error) => {
         if (requestId === graphRequestRef.current && !silentErrors) {
@@ -382,10 +372,22 @@ export function App() {
   function exportMetadata() {
     exportMetadataJson({
       generatedAt: new Date().toISOString(),
+      app: {
+        name: APP_NAME,
+        version: APP_VERSION,
+        repository: APP_REPOSITORY_URL || null,
+      },
       query,
       inputMode,
       organism,
       namespace: namespace || "all",
+      data: {
+        goVersion: stats?.dataVersion ?? null,
+        goSource: stats?.source ?? null,
+        generatedAt: stats?.generatedAt ?? null,
+        organism: graph?.organism ?? null,
+        annotationDate: graph?.annotationDate ?? null,
+      },
       ancestorDepth: ancestors,
       descendantDepth: descendants,
       randomChildLimit,
@@ -405,6 +407,7 @@ export function App() {
             truncated: graph.truncated,
             missingTerms: graph.missingTerms ?? [],
             missingGenes: graph.missingGenes ?? [],
+            genesWithoutTerms: graph.genesWithoutTerms ?? [],
             annotationDate: graph.annotationDate ?? null,
             organism: graph.organism ?? null,
           }
@@ -537,6 +540,29 @@ export function App() {
 
 function organismLabel(organisms: Organism[], key: string): string {
   return organisms.find((entry) => entry.key === key)?.label ?? key;
+}
+
+function graphWarnings(graph: GraphResponse, organism: string, includeObsolete: boolean): string {
+  const warnings: string[] = [];
+  if (graph.missingTerms && graph.missingTerms.length > 0) {
+    const obsoleteHint = includeObsolete ? "" : " or enable obsolete terms";
+    warnings.push(`Ignored GO terms not found in the current ontology: ${formatList(graph.missingTerms)}. Check GO IDs or names${obsoleteHint}.`);
+  }
+  if (graph.missingGenes && graph.missingGenes.length > 0) {
+    warnings.push(`Ignored genes not found for ${organism}: ${formatList(graph.missingGenes)}. Check the organism or use a symbol, gene ID, or database ID.`);
+  }
+  if (graph.genesWithoutTerms && graph.genesWithoutTerms.length > 0) {
+    warnings.push(
+      `Matched genes without GO annotations in ${organism}: ${formatList(graph.genesWithoutTerms.map((gene) => gene.symbol))}.`,
+    );
+  }
+  return warnings.join(" ");
+}
+
+function formatList(values: string[], maxItems = 5): string {
+  const shown = values.slice(0, maxItems).join(", ");
+  const remaining = values.length - maxItems;
+  return remaining > 0 ? `${shown}, and ${remaining} more` : shown;
 }
 
 async function copyText(text: string): Promise<void> {

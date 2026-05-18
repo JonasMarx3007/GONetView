@@ -82,6 +82,8 @@ export function GraphPane({
         {selectedTerms.length > 1 && <strong>{selectedTerms.length} selected terms</strong>}
         {graph?.selectedGenes && graph.selectedGenes.length > 0 && <strong>{graph.selectedGenes.length} selected genes</strong>}
         {graph?.missingTerms && graph.missingTerms.length > 0 && <strong>{graph.missingTerms.length} ignored GO terms</strong>}
+        {graph?.missingGenes && graph.missingGenes.length > 0 && <strong>{graph.missingGenes.length} ignored genes</strong>}
+        {graph?.genesWithoutTerms && graph.genesWithoutTerms.length > 0 && <strong>{graph.genesWithoutTerms.length} genes without GO terms</strong>}
         {graphSearch.trim() && <strong>{searchMatchIds.size.toLocaleString()} graph search hits</strong>}
         {autoRefreshPending && <strong className="notice">Updating soon</strong>}
         {layoutNotice && <strong className="notice">{layoutNotice}</strong>}

@@ -464,6 +464,38 @@ output {
   color: #ffffff;
 }
 
+.example-links {
+  display: grid;
+  gap: 7px;
+}
+
+.example-links > span {
+  color: #52606a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.example-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid #d6dee3;
+  border-radius: 6px;
+  background: #fafbfc;
+  color: #26323c;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.example-links a:hover {
+  border-color: #8fb9c5;
+  background: #f0f8fa;
+  color: var(--accent-strong);
+}
+
 .zoom-actions {
   display: grid;
   grid-template-columns: repeat(3, 42px) minmax(56px, 1fr);

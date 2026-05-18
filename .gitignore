@@ -10,3 +10,7 @@ frontend/dist/
 __pycache__/
 *.pyc
 local/
+frontend/.test-build/
+frontend/test-results/
+test-results/
+.coverage

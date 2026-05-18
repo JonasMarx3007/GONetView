@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use GONetView in research, please cite it using this metadata."
+title: "GONetView"
+abstract: "A standalone browser-based Gene Ontology network viewer with local preprocessing for GO ontology and GAF annotation data."
+authors:
+  - family-names: "Marx"
+    given-names: "Jonas"
+version: "0.1.0"
+date-released: "2026-05-18"
+repository-code: "https://github.com/JonasMarx3007/GONetView"
+url: "https://jonasmarx3007.github.io/GONetView/"
+license: "MIT"
+keywords:
+  - "Gene Ontology"
+  - "bioinformatics"
+  - "data visualization"
+  - "research software"
+  - "web application"

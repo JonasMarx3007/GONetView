@@ -545,3 +545,10 @@ function pdfString(value: string): string {
     .replace(/\)/g, "\\)");
   return `(${escaped})`;
 }
+
+export const __exportFigureTest = {
+  buildPdf,
+  parseCssColor,
+  pathDataToPdf,
+  safeCanvasScale,
+};

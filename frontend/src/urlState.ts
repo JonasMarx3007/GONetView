@@ -66,6 +66,20 @@ export function writeUrlState(state: UrlAppState): void {
   if (typeof window === "undefined") {
     return;
   }
+  const params = stateToSearchParams(state);
+
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+  if (nextUrl !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(null, "", nextUrl);
+  }
+}
+
+export function serializeUrlState(state: UrlAppState): string {
+  return stateToSearchParams(state).toString();
+}
+
+function stateToSearchParams(state: UrlAppState): URLSearchParams {
   const params = new URLSearchParams();
   setString(params, "mode", state.inputMode);
   setString(params, "q", state.query);
@@ -82,12 +96,7 @@ export function writeUrlState(state: UrlAppState): void {
   setBoolean(params, "legend", state.showLegend);
   setString(params, "fit", state.fitMode);
   setString(params, "find", state.graphSearch);
-
-  const nextSearch = params.toString();
-  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
-  if (nextUrl !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
-    window.history.replaceState(null, "", nextUrl);
-  }
+  return params;
 }
 
 function readString(params: URLSearchParams, key: string): string | undefined {
