@@ -1,5 +1,7 @@
 # GONetView
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20271710.svg)](https://doi.org/10.5281/zenodo.20271710)
+
 GONetView is a standalone, fully web-based Gene Ontology network viewer. It uses a Python preprocessing step to compile raw Gene Ontology and GAF annotation files into static browser indexes, then the React/TypeScript app runs entirely in the browser.
 
 ![GONetView overview](docs/assets/gonetview-overview.png)
@@ -150,7 +152,15 @@ npm.cmd --prefix frontend run build
 
 ## Citation
 
-Citation metadata is provided in `CITATION.cff`.
+If you use GONetView in research, please cite the archived software release:
+
+```text
+Marx, J. (2026). GONetView (v0.1.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20271711
+```
+
+The version DOI for GONetView v0.1.0 is `10.5281/zenodo.20271711`. The all-versions DOI is `10.5281/zenodo.20271710`.
+
+Citation metadata is also provided in `CITATION.cff`.
 
 ## Contributing
 
