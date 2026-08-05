@@ -6,6 +6,9 @@ from functools import lru_cache
 from pathlib import Path
 
 
+# GAF column 7 evidence code for annotations inferred by machine, without curator review.
+ELECTRONIC_EVIDENCE = "IEA"
+
 ORGANISM_LABELS = {
     "dictybase": "Dictyostelium discoideum",
     "ecocyc": "Escherichia coli",
@@ -54,6 +57,7 @@ class AnnotationIndex:
         gene_to_terms: dict[str, set[str]],
         aliases: dict[str, set[str]],
         date_generated: str | None,
+        gene_to_terms_experimental: dict[str, set[str]] | None = None,
     ) -> None:
         self.organism = organism
         self.genes = genes
@@ -64,6 +68,13 @@ class AnnotationIndex:
         self.gene_to_terms = {
             gene_key: tuple(sorted(terms))
             for gene_key, terms in gene_to_terms.items()
+        }
+        # Same mapping with electronic (IEA) annotations left out, so enrichment can be run
+        # on curated evidence only without a second pass over the GAF.
+        self.gene_to_terms_experimental = {
+            gene_key: tuple(sorted(terms))
+            for gene_key, terms in (gene_to_terms_experimental or {}).items()
+            if terms
         }
         self.aliases = {alias: tuple(sorted(keys)) for alias, keys in aliases.items()}
         self.date_generated = date_generated
@@ -97,6 +108,7 @@ def load_annotations(directory: str, organism_key: str) -> AnnotationIndex:
     genes: dict[str, GeneRecord] = {}
     term_to_gene_keys: dict[str, set[str]] = {}
     gene_to_terms: dict[str, set[str]] = {}
+    gene_to_terms_experimental: dict[str, set[str]] = {}
     aliases: dict[str, set[str]] = {}
     date_generated: str | None = None
 
@@ -118,6 +130,7 @@ def load_annotations(directory: str, organism_key: str) -> AnnotationIndex:
             object_id = parts[1]
             symbol = parts[2] or object_id
             go_id = parts[4]
+            evidence = parts[6]
             name = parts[9]
             synonyms = parts[10].split("|") if len(parts) > 10 and parts[10] else []
             taxon = parts[12]
@@ -135,13 +148,23 @@ def load_annotations(directory: str, organism_key: str) -> AnnotationIndex:
 
             term_to_gene_keys.setdefault(go_id, set()).add(gene_key)
             gene_to_terms.setdefault(gene_key, set()).add(go_id)
+            if evidence != ELECTRONIC_EVIDENCE:
+                gene_to_terms_experimental.setdefault(gene_key, set()).add(go_id)
 
             for alias in (symbol, object_id, gene_key, *synonyms):
                 normalized = _normalize(alias)
                 if normalized:
                     aliases.setdefault(normalized, set()).add(gene_key)
 
-    return AnnotationIndex(organism, genes, term_to_gene_keys, gene_to_terms, aliases, date_generated)
+    return AnnotationIndex(
+        organism,
+        genes,
+        term_to_gene_keys,
+        gene_to_terms,
+        aliases,
+        date_generated,
+        gene_to_terms_experimental,
+    )
 
 
 def gene_json(record: GeneRecord) -> dict[str, object]:

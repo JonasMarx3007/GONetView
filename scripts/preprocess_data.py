@@ -121,7 +121,12 @@ def main() -> None:
                 "geneSearch": f"annotations/{organism.key}/gene-search.json",
                 "termToGenes": f"annotations/{organism.key}/term-to-genes.json",
                 "geneToTerms": f"annotations/{organism.key}/gene-to-terms.json",
+                "geneToTermsExperimental": f"annotations/{organism.key}/gene-to-terms-experimental.json",
                 "aliases": f"annotations/{organism.key}/aliases.json",
+            },
+            "evidence": {
+                "annotatedGenes": len(annotations.gene_to_terms),
+                "genesWithCuratedEvidence": len(annotations.gene_to_terms_experimental),
             },
         }
         organism_dir = output / "annotations" / organism.key
@@ -130,15 +135,19 @@ def main() -> None:
         write_json(organism_dir / "gene-search.json", _gene_search_rows(genes))
         write_json(organism_dir / "term-to-genes.json", {term_id: list(keys) for term_id, keys in sorted(annotations.term_to_genes.items())})
         write_json(organism_dir / "gene-to-terms.json", {key: list(terms) for key, terms in sorted(annotations.gene_to_terms.items())})
+        write_json(
+            organism_dir / "gene-to-terms-experimental.json",
+            {key: list(terms) for key, terms in sorted(annotations.gene_to_terms_experimental.items())},
+        )
         write_json(organism_dir / "aliases.json", {alias: list(keys) for alias, keys in sorted(annotations.aliases.items())})
 
 
 def write_json(path: Path, payload: Any) -> None:
+    # Only plain JSON is written: the browser never requests a .gz sidecar, and static hosts
+    # such as GitHub Pages compress responses themselves.
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    with path.open("w", encoding="utf-8") as handle:
-        handle.write(encoded.decode("utf-8"))
-    with gzip.open(f"{path}.gz", "wb", compresslevel=9) as handle:
+    with path.open("wb") as handle:
         handle.write(encoded)
     print(f"Wrote {path}")
 
