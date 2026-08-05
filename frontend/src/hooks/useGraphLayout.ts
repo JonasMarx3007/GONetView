@@ -1,12 +1,19 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { buildConnectionGraph, type ConnectionGraph } from "../graphConnections";
-import { layoutGraph, layoutReadableGraph, type LayoutGraph, type LayoutMode } from "../layout";
+import { layoutGraph, layoutReadableGraph, type LayoutGraph, type LayoutMode, type ReadableLayoutProfile } from "../layout";
 import type { GOEdge, GOTerm, GraphResponse } from "../types";
+import { formatCount } from "../formatNumber";
 
-const READABLE_LAYOUT_NODE_LIMIT = 720;
-const READABLE_LAYOUT_EDGE_LIMIT = 1300;
-const READABLE_LAYOUT_COMPLEXITY_LIMIT = 620000;
-const READABLE_LAYOUT_TIMEOUT_MS = 22000;
+// Readable layout runs in a worker, so the ceiling is the wait a user will tolerate rather
+// than a frozen tab. Measured on real GO graphs: the fast profile lays out 901 nodes in about
+// 9 s and 1,122 nodes in roughly 20 s, so the limit sits just past the larger of those.
+const READABLE_LAYOUT_NODE_LIMIT = 1200;
+const READABLE_LAYOUT_EDGE_LIMIT = 1800;
+const READABLE_LAYOUT_COMPLEXITY_LIMIT = 2200000;
+// Above this size the quality profile costs minutes, so the faster placement is used instead.
+const FAST_LAYOUT_NODE_THRESHOLD = 520;
+const FAST_LAYOUT_EDGE_THRESHOLD = 620;
+const READABLE_LAYOUT_TIMEOUT_MS = 45000;
 
 type UseGraphLayoutArgs = {
   graph: GraphResponse | null;
@@ -122,12 +129,17 @@ export function useGraphLayout({ graph, selectedTerms, trimConnections, layoutMo
       };
     }
 
+    const profile = readableLayoutProfile(connectionGraph);
     const preview = layoutGraph(connectionGraph.nodes, connectionGraph.edges);
     setLaidOut(preview);
     setLayouting(true);
-    setLayoutNotice("Readable layout is being prepared; showing a fast preview until it is ready.");
+    setLayoutNotice(
+      profile === "fast"
+        ? `Readable layout is being prepared for ${formatCount(connectionGraph.nodes.length)} nodes using faster node placement, which allows more crossings; showing a quick preview until it is ready.`
+        : "Readable layout is being prepared; showing a fast preview until it is ready.",
+    );
     withTimeout(
-      layoutReadableGraph(connectionGraph.nodes, connectionGraph.edges),
+      layoutReadableGraph(connectionGraph.nodes, connectionGraph.edges, profile),
       READABLE_LAYOUT_TIMEOUT_MS,
       "Readable layout took too long, so GONetView switched to classic for this graph.",
     )
@@ -170,6 +182,12 @@ export function useGraphLayout({ graph, selectedTerms, trimConnections, layoutMo
   };
 }
 
+function readableLayoutProfile(graph: ConnectionGraph): ReadableLayoutProfile {
+  return graph.nodes.length > FAST_LAYOUT_NODE_THRESHOLD || graph.edges.length > FAST_LAYOUT_EDGE_THRESHOLD
+    ? "fast"
+    : "quality";
+}
+
 function readableLayoutFallbackReason(graph: ConnectionGraph): string {
   const nodeCount = graph.nodes.length;
   const edgeCount = graph.edges.length;
@@ -181,7 +199,8 @@ function readableLayoutFallbackReason(graph: ConnectionGraph): string {
   ) {
     return "";
   }
-  return `Readable layout skipped for ${nodeCount.toLocaleString()} nodes and ${edgeCount.toLocaleString()} edges; classic layout is shown to keep the browser responsive. Try Trim to selected paths or lower ancestor/child depth.`;
+  // Ordered by how much each control actually shrinks a dense gene-mode graph.
+  return `Readable layout skipped for ${formatCount(nodeCount)} nodes and ${formatCount(edgeCount)} edges; classic layout is shown to keep the browser responsive. Try a single namespace, a lower ancestor or child depth, fewer inputs, or Trim to selected paths.`;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

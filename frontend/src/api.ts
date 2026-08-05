@@ -1,4 +1,15 @@
-import type { GeneRecord, GOEdge, GOTerm, GraphResponse, Organism, StatsResponse } from "./types";
+import type { EnrichmentIndex } from "./enrichment";
+import { runEnrichmentCounting } from "./enrichmentClient";
+import type {
+  EnrichmentResponse,
+  EnrichmentResult,
+  GeneRecord,
+  GOEdge,
+  GOTerm,
+  GraphResponse,
+  Organism,
+  StatsResponse,
+} from "./types";
 import { fetchJson, fetchJsonCached } from "./dataCache";
 
 type RawRelation = [target: string, type: string];
@@ -33,7 +44,12 @@ type AnnotationManifest = {
     geneSearch?: string;
     termToGenes: string;
     geneToTerms: string;
+    geneToTermsExperimental?: string;
     aliases: string;
+  };
+  evidence?: {
+    annotatedGenes: number;
+    genesWithCuratedEvidence: number;
   };
 };
 
@@ -57,6 +73,14 @@ const BASE_PATH = normalizeBasePath(importEnv.VITE_BASE_PATH ?? importEnv.BASE_U
 const DATA_BASE = `${BASE_PATH}/data`;
 const DEFAULT_TERM = "GO:0019319";
 const DEFAULT_ORGANISM = "goa_human";
+// GAF files annotate more than gene products. Complexes and ncRNA entities are separate
+// annotation objects, and counting them as genes inflates the enrichment universe: human
+// carries 16,854 RNAcentral and 2,274 ComplexPortal entries next to 19,790 UniProtKB genes.
+const NON_GENE_DATABASES = new Set(["ComplexPortal", "RNAcentral"]);
+export const DEFAULT_MIN_TERM_SIZE = 5;
+export const DEFAULT_MAX_TERM_SIZE = 500;
+// A parent term is dropped when a kept descendant already accounts for this share of its hits.
+export const DEFAULT_REDUNDANCY_OVERLAP = 0.9;
 
 let ontologyPromise: Promise<BrowserOntology> | null = null;
 const annotationPromises = new Map<string, Promise<BrowserAnnotations>>();
@@ -68,6 +92,7 @@ class BrowserOntology {
   readonly relationChildren: Map<string, RawRelation[]>;
   readonly searchRows: Array<{ term: RawTerm; text: string }>;
   termSearchPromise: Promise<TermSearchRecord[]> | null = null;
+  private enrichmentIndexCache: Omit<EnrichmentIndex, "geneToTerms"> | null = null;
 
   constructor(
     readonly manifest: OntologyManifest,
@@ -208,6 +233,34 @@ class BrowserOntology {
     return [...descendants];
   }
 
+  enrichmentTerm(termId: string): GOTerm | undefined {
+    const term = this.termsById.get(termId);
+    return term ? this.termJson(term) : undefined;
+  }
+
+  // Built once per ontology and handed to the enrichment worker, which keeps it across runs.
+  enrichmentIndexData(): Omit<EnrichmentIndex, "geneToTerms"> {
+    if (!this.enrichmentIndexCache) {
+      const parents: Record<string, string[]> = {};
+      const namespaces: Record<string, string> = {};
+      const obsolete: string[] = [];
+      for (const term of this.terms) {
+        namespaces[term.id] = term.namespace;
+        if (term.obsolete) {
+          obsolete.push(term.id);
+        }
+        const targets = term.relations
+          .filter(([, relation]) => relation === "is_a" || relation === "part_of")
+          .map(([target]) => target);
+        if (targets.length > 0) {
+          parents[term.id] = [...new Set(targets)];
+        }
+      }
+      this.enrichmentIndexCache = { parents, namespaces, obsolete };
+    }
+    return this.enrichmentIndexCache;
+  }
+
   subgraphForTerms(
     values: string[],
     ancestors: number,
@@ -332,6 +385,7 @@ class BrowserAnnotations {
   genesByKeyPromise: Promise<Map<string, GeneRecord>> | null = null;
   aliasesPromise: Promise<Record<string, string[]>> | null = null;
   geneToTermsPromise: Promise<Record<string, string[]>> | null = null;
+  curatedGeneToTermsPromise: Promise<Record<string, string[]>> | null = null;
   termToGenesPromise: Promise<Record<string, string[]>> | null = null;
 
   constructor(readonly manifest: AnnotationManifest) {}
@@ -416,6 +470,23 @@ class BrowserAnnotations {
     return this.termToGenesPromise;
   }
 
+  // Curated mode uses the index built without IEA annotations, which is absent only for data
+  // compiled before evidence codes were parsed.
+  async enrichmentIndex(curatedOnly: boolean): Promise<{
+    genes: GeneRecord[];
+    geneToTerms: Record<string, string[]>;
+    curatedAvailable: boolean;
+  }> {
+    const curatedFile = this.manifest.files.geneToTermsExperimental;
+    if (curatedOnly && curatedFile) {
+      this.curatedGeneToTermsPromise ??= this.chunk<Record<string, string[]>>(curatedFile);
+      const [genes, geneToTerms] = await Promise.all([this.genes(), this.curatedGeneToTermsPromise]);
+      return { genes, geneToTerms, curatedAvailable: true };
+    }
+    const [genes, geneToTerms] = await Promise.all([this.genes(), this.geneToTerms()]);
+    return { genes, geneToTerms, curatedAvailable: Boolean(curatedFile) };
+  }
+
   private async recordsForKeys(keys: string[], limit: number): Promise<GeneRecord[]> {
     const genesByKey = await this.genesByKey();
     const capped = limit > 0 ? keys.slice(0, limit) : keys;
@@ -485,6 +556,122 @@ export async function fetchTermGenes(
   const annotations = await loadAnnotations(organism || DEFAULT_ORGANISM);
   const termIds = includeDescendants ? [termId, ...ontology.descendantsOf(termId).sort()] : [termId];
   return { ...(await annotations.recordsForTerms(termIds, 500)), includeDescendants };
+}
+
+export async function fetchEnrichment(
+  values: string[],
+  backgroundValues: string[],
+  organism: string,
+  namespace: string,
+  includeObsolete: boolean,
+  propagate: boolean,
+  minTermSize = DEFAULT_MIN_TERM_SIZE,
+  maxTermSize = DEFAULT_MAX_TERM_SIZE,
+  curatedOnly = false,
+  reduceRedundantTerms = false,
+  redundancyFdr = 0.05,
+  redundancyOverlap = DEFAULT_REDUNDANCY_OVERLAP,
+): Promise<EnrichmentResponse> {
+  const ontology = await loadOntology();
+  const annotations = await loadAnnotations(organism || DEFAULT_ORGANISM);
+  const queryResolution = await annotations.resolveGenes(values);
+  if (queryResolution.genes.length === 0) {
+    const missing = queryResolution.missing.join(", ") || values.join(", ");
+    throw new Error(`No genes matched ${annotations.manifest.organism.label}: ${missing}.`);
+  }
+
+  const { genes: allGenes, geneToTerms, curatedAvailable } = await annotations.enrichmentIndex(curatedOnly);
+  const usingCurated = curatedOnly && curatedAvailable;
+  const customBackground = backgroundValues.length > 0;
+  const backgroundResolution = customBackground ? await annotations.resolveGenes(backgroundValues) : undefined;
+  const resolvedBackground = customBackground ? backgroundResolution?.genes ?? [] : allGenes;
+  // A custom list is taken as given; the organism-wide universe counts gene products only, and
+  // in curated mode it also drops genes left with no annotation at all.
+  const universe = customBackground ? resolvedBackground : resolvedBackground.filter(isGeneProduct);
+  const backgroundGenes = usingCurated ? universe.filter((gene) => (geneToTerms[gene.key] ?? []).length > 0) : universe;
+  const excludedEntities = resolvedBackground.length - universe.length;
+  const excludedWithoutCuratedEvidence = universe.length - backgroundGenes.length;
+  if (backgroundGenes.length === 0) {
+    throw new Error(
+      usingCurated
+        ? "No background genes keep an annotation once electronic (IEA) evidence is excluded."
+        : "No background genes matched the selected organism.",
+    );
+  }
+
+  const backgroundKeys = new Set(backgroundGenes.map((gene) => gene.key));
+  const queryGenes = queryResolution.genes.filter((gene) => backgroundKeys.has(gene.key));
+  const outsideBackgroundGenes = queryResolution.genes.filter((gene) => !backgroundKeys.has(gene.key));
+  if (queryGenes.length === 0) {
+    throw new Error("None of the matched query genes are present in the custom background.");
+  }
+
+  const queryGenesByKey = new Map(queryGenes.map((gene) => [gene.key, gene]));
+  const calculated = await runEnrichmentCounting({
+    indexKey: `${ontology.manifest.generatedAt}|${annotations.manifest.organism.key}|${annotations.manifest.generatedAt}|${usingCurated ? "curated" : "all"}`,
+    index: { ...ontology.enrichmentIndexData(), geneToTerms },
+    backgroundKeys: backgroundGenes.map((gene) => gene.key),
+    queryKeys: queryGenes.map((gene) => gene.key),
+    namespace,
+    includeObsolete,
+    propagate,
+    minTermSize,
+    maxTermSize,
+    reduceRedundantTerms,
+    redundancyFdr,
+    redundancyOverlap,
+  });
+
+  // The worker returns identifiers; term and gene records are attached here, where they live.
+  const results = calculated.results.flatMap((result): EnrichmentResult[] => {
+    const term = ontology.enrichmentTerm(result.termId);
+    if (!term) {
+      return [];
+    }
+    const genes = result.geneKeys
+      .map((key) => queryGenesByKey.get(key))
+      .filter((gene): gene is GeneRecord => Boolean(gene))
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return [
+      {
+        term,
+        observed: result.observed,
+        querySize: queryGenes.length,
+        backgroundObserved: result.backgroundObserved,
+        backgroundSize: backgroundGenes.length,
+        expected: result.expected,
+        foldEnrichment: result.foldEnrichment,
+        pValue: result.pValue,
+        adjustedPValue: result.adjustedPValue,
+        genes,
+      },
+    ];
+  });
+
+  return {
+    organism: annotations.manifest.organism,
+    annotationDate: annotations.manifest.dateGenerated,
+    queryGenes,
+    missingGenes: queryResolution.missing,
+    genesWithoutTerms: queryResolution.genesWithoutTerms,
+    backgroundMode: customBackground ? "custom" : "annotated",
+    backgroundSize: backgroundGenes.length,
+    backgroundSources: [...new Set(backgroundGenes.map((gene) => gene.db))].sort(),
+    backgroundKind: customBackground ? "all-entities" : "gene-products",
+    excludedEntities,
+    excludedWithoutCuratedEvidence,
+    evidenceMode: usingCurated ? "curated" : "all",
+    backgroundMissingGenes: backgroundResolution?.missing ?? [],
+    outsideBackgroundGenes,
+    testedTerms: calculated.testedTerms,
+    testedTermsByNamespace: calculated.testedTermsByNamespace,
+    minTermSize,
+    maxTermSize,
+    propagated: propagate,
+    redundancyReduced: reduceRedundantTerms,
+    redundantTermsRemoved: calculated.redundantTermsRemoved,
+    results,
+  };
 }
 
 export async function fetchFocusedGraph(
@@ -588,6 +775,10 @@ function normalizeBasePath(path: string): string {
     return "";
   }
   return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
+}
+
+function isGeneProduct(gene: GeneRecord): boolean {
+  return !NON_GENE_DATABASES.has(gene.db);
 }
 
 function normalizeGene(value: string): string {

@@ -51,7 +51,42 @@ const EXAMPLE_STATES: Array<Omit<SavedExample, "search">> = [
   },
 ];
 
-export const SAVED_EXAMPLES: SavedExample[] = EXAMPLE_STATES.map((example) => ({
-  ...example,
-  search: serializeUrlState(example.state),
-}));
+const ENRICHMENT_EXAMPLE_STATES: Array<Omit<SavedExample, "search">> = [
+  {
+    id: "dna-damage-gene-set",
+    label: "DNA damage gene set",
+    summary: "Ten human DNA damage response genes, tested on curated evidence without redundant parents.",
+    state: {
+      organism: "goa_human",
+      enrichmentQuery: "TP53\nBRCA1\nBRCA2\nATM\nCHEK2\nRAD51\nMDM2\nCDKN1A\nBAX\nPARP1",
+      enrichmentPropagate: true,
+      enrichmentCuratedOnly: true,
+      enrichmentReduceRedundancy: true,
+      autoRunEnrichment: true,
+      layoutMode: "readable",
+      fitMode: "height",
+      showLegend: true,
+    },
+  },
+  {
+    id: "glycolysis-gene-set",
+    label: "Glycolysis gene set",
+    summary: "Eight glycolytic enzymes, tested with the default settings.",
+    state: {
+      organism: "goa_human",
+      enrichmentQuery: "HK1\nGPI\nPFKM\nALDOA\nGAPDH\nPGK1\nENO1\nPKM",
+      enrichmentPropagate: true,
+      autoRunEnrichment: true,
+      layoutMode: "readable",
+      fitMode: "height",
+      showLegend: true,
+    },
+  },
+];
+
+function withSearch(examples: Array<Omit<SavedExample, "search">>): SavedExample[] {
+  return examples.map((example) => ({ ...example, search: serializeUrlState(example.state) }));
+}
+
+export const SAVED_EXAMPLES: SavedExample[] = withSearch(EXAMPLE_STATES);
+export const ENRICHMENT_EXAMPLES: SavedExample[] = withSearch(ENRICHMENT_EXAMPLE_STATES);

@@ -2,6 +2,10 @@ import type { FitMode } from "./hooks/useGraphAutoFit";
 import type { InputMode } from "./inputParsing";
 import type { LayoutMode } from "./layout";
 
+// Figures, the enrichment table, and the run metadata can all be saved from a link.
+export const EXPORT_FORMATS = ["png", "svg", "pdf", "csv", "json"] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
 export type UrlAppState = {
   inputMode?: InputMode;
   query?: string;
@@ -18,6 +22,18 @@ export type UrlAppState = {
   showLegend?: boolean;
   fitMode?: FitMode;
   graphSearch?: string;
+  // Enrichment request, so a link can reproduce an ORA run and not just a graph.
+  enrichmentQuery?: string;
+  enrichmentBackground?: string;
+  enrichmentPropagate?: boolean;
+  enrichmentCuratedOnly?: boolean;
+  enrichmentReduceRedundancy?: boolean;
+  enrichmentMinTermSize?: number;
+  enrichmentMaxTermSize?: number;
+  // Actions a link can ask the app to perform once it has loaded.
+  autoRunEnrichment?: boolean;
+  autoMapTopHits?: number;
+  autoExport?: ExportFormat[];
 };
 
 export function readUrlState(): UrlAppState {
@@ -53,6 +69,23 @@ export function readUrlState(): UrlAppState {
   state.includeObsolete = readBoolean(params, "obsolete");
   state.trimConnections = readBoolean(params, "trim");
   state.showLegend = readBoolean(params, "legend");
+  state.enrichmentQuery = readString(params, "genes");
+  state.enrichmentBackground = readString(params, "bg");
+  state.enrichmentPropagate = readBoolean(params, "propagate");
+  state.enrichmentCuratedOnly = readBoolean(params, "curated");
+  state.enrichmentReduceRedundancy = readBoolean(params, "reduce");
+  state.enrichmentMinTermSize = readNumber(params, "minsize");
+  state.enrichmentMaxTermSize = readNumber(params, "maxsize");
+  state.autoRunEnrichment = readBoolean(params, "run");
+  state.autoMapTopHits = readNumber(params, "top");
+
+  const requestedExports = (readString(params, "export") ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry): entry is ExportFormat => (EXPORT_FORMATS as readonly string[]).includes(entry));
+  if (requestedExports.length > 0) {
+    state.autoExport = [...new Set(requestedExports)];
+  }
 
   const relations = readString(params, "rel");
   if (relations) {
@@ -96,6 +129,21 @@ function stateToSearchParams(state: UrlAppState): URLSearchParams {
   setBoolean(params, "legend", state.showLegend);
   setString(params, "fit", state.fitMode);
   setString(params, "find", state.graphSearch);
+  setString(params, "genes", state.enrichmentQuery);
+  setString(params, "bg", state.enrichmentBackground);
+  if (state.enrichmentQuery) {
+    setBoolean(params, "propagate", state.enrichmentPropagate);
+    setBoolean(params, "curated", state.enrichmentCuratedOnly);
+    setBoolean(params, "reduce", state.enrichmentReduceRedundancy);
+    setNumber(params, "minsize", state.enrichmentMinTermSize);
+    setNumber(params, "maxsize", state.enrichmentMaxTermSize);
+  }
+  // Actions are only ever written when a caller asks for them, such as a saved example link.
+  if (state.autoRunEnrichment) {
+    params.set("run", "1");
+  }
+  setNumber(params, "top", state.autoMapTopHits);
+  setString(params, "export", state.autoExport?.join(","));
   return params;
 }
 

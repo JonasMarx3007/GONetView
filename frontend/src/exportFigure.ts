@@ -42,6 +42,10 @@ export function exportMetadataJson(metadata: unknown) {
   downloadBlob(new Blob([json], { type: "application/json;charset=utf-8" }), `${fileBase}.json`);
 }
 
+export function exportEnrichmentCsv(csv: string, organismKey: string) {
+  downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `gonetview-enrichment-${organismKey}.csv`);
+}
+
 function serializeFigureSvg(svg: SVGSVGElement): string {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const { width, height } = svgDimensions(svg);

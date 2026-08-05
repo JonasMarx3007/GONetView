@@ -12,6 +12,7 @@
   "include": [
     "src/api.ts",
     "src/dataCache.ts",
+    "src/enrichment.ts",
     "src/exportFigure.ts",
     "src/graphConnections.ts",
     "src/graphSearch.ts",

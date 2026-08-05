@@ -298,15 +298,19 @@ select {
 
 .suggestions {
   display: grid;
+  /* Rows must size to their content: stretched rows clipped long descriptions. */
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 6px;
   max-height: 360px;
   overflow: auto;
   padding-right: 2px;
 }
 
+/* A button does not grow with grid or flex content in Chromium, which cut off long gene
+   descriptions, so the card content lives in a wrapper the button can size to. */
 .suggestions button {
-  display: grid;
-  gap: 2px;
+  display: block;
   min-height: 54px;
   text-align: left;
   border: 1px solid #d6dee3;
@@ -315,14 +319,28 @@ select {
   padding: 10px 11px;
 }
 
+.suggestion-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
 .suggestions button:hover {
   border-color: #8fb9c5;
   background: #f0f8fa;
 }
 
+.suggestions strong,
 .suggestions span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.suggestion-body > span {
   color: #52606a;
   font-size: 13px;
+  line-height: 1.35;
 }
 
 .relation-picks {
@@ -462,6 +480,63 @@ output {
   border-color: var(--accent-strong);
   background: var(--accent-strong);
   color: #ffffff;
+}
+
+.actions button:disabled {
+  cursor: not-allowed;
+  border-color: #c9d1d7;
+  background: #e8ecef;
+  color: #7a858d;
+}
+
+.inline-error {
+  padding: 8px 10px;
+  border: 1px solid #f0b8b2;
+  border-radius: 6px;
+  background: #fff2f0;
+  color: #9f241b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.graph-toolbar .source-note {
+  border-color: #b6d9c6;
+  background: #eef8f2;
+  color: #0d6b46;
+}
+
+.term-size-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.term-size-row label {
+  display: grid;
+  gap: 5px;
+}
+
+.term-size-row span {
+  color: #52606a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.term-size-row input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #c8d1d8;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.field-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .example-links {
@@ -791,6 +866,311 @@ output {
   background: #f7f9fb;
 }
 
+.graph-pane.with-enrichment {
+  grid-template-rows: auto minmax(160px, 1fr) auto;
+}
+
+.enrichment-panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: #ffffff;
+  box-shadow: 0 -8px 24px rgba(32, 48, 60, 0.07);
+  z-index: 3;
+}
+
+/* Collapsed, the panel is only its header, so the graph takes the rest of the pane. */
+.enrichment-panel.collapsed {
+  display: block;
+  min-height: 0;
+  height: auto;
+}
+
+.enrichment-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 9px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.enrichment-resize::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 46px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: #c3ced5;
+}
+
+.enrichment-resize:hover::after {
+  background: var(--accent);
+}
+
+.enrichment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.enrichment-header > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.enrichment-header strong {
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.enrichment-header span,
+.enrichment-method {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.enrichment-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #edd6a8;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #fdf7ea;
+  color: #7d5a12;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.enrichment-stale:hover:not(:disabled) {
+  border-color: #d9b46a;
+}
+
+.enrichment-header-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.enrichment-header-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 31px;
+  height: 31px;
+  border: 1px solid #ccd5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #52606a;
+}
+
+.enrichment-header-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.enrichment-controls {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) 110px 110px 110px auto;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 16px;
+}
+
+.enrichment-controls label {
+  display: grid;
+  gap: 5px;
+}
+
+.enrichment-controls label span {
+  color: #52606a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.enrichment-controls input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #c8d1d8;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.enrichment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.enrichment-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 11px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.enrichment-actions button.secondary {
+  background: #ffffff;
+  color: var(--accent);
+}
+
+.enrichment-actions button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  color: #ffffff;
+}
+
+.enrichment-actions button:disabled {
+  cursor: not-allowed;
+  border-color: #ccd4d9;
+  background: #e9edef;
+  color: #7c878e;
+}
+
+.enrichment-method,
+.enrichment-warning {
+  padding: 0 16px 8px;
+  line-height: 1.4;
+}
+
+.enrichment-warning {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #9a4f00;
+  font-size: 12px;
+}
+
+.enrichment-warning span {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #fff6e8;
+}
+
+.enrichment-table-wrap {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid #e0e5e9;
+}
+
+.enrichment-table {
+  width: 100%;
+  min-width: 1050px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.enrichment-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 9px;
+  border-bottom: 1px solid #ccd5db;
+  background: #f4f7f9;
+  color: #46535d;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.enrichment-table th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 800;
+}
+
+.enrichment-table th button.active {
+  color: var(--accent);
+}
+
+.enrichment-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid #e6eaed;
+  color: #35424b;
+  vertical-align: middle;
+}
+
+.enrichment-table tbody tr:hover td {
+  background: #f6fafb;
+}
+
+.enrichment-table tbody tr.selected td {
+  background: #f0f9fb;
+}
+
+.enrichment-table .select-column {
+  width: 34px;
+  text-align: center;
+}
+
+.enrichment-table .term-column {
+  width: 300px;
+}
+
+.enrichment-table .term-column strong,
+.enrichment-table .term-column span {
+  display: block;
+}
+
+.enrichment-table .term-column strong {
+  color: var(--accent-strong);
+}
+
+.enrichment-table .term-column span {
+  margin-top: 2px;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.enrichment-table .gene-column {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enrichment-table .significant {
+  color: #08704f;
+  font-weight: 850;
+}
+
+.enrichment-empty {
+  padding: 22px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
 .sidebar-float-toggle {
   position: absolute;
   top: 7px;
@@ -1115,5 +1495,23 @@ output {
   .graph-pane {
     height: 70vh;
     min-height: 0;
+  }
+
+  .graph-pane.with-enrichment {
+    height: 105vh;
+  }
+
+  .enrichment-header > div:first-child {
+    display: grid;
+    gap: 2px;
+  }
+
+  .enrichment-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .enrichment-controls label:first-child,
+  .enrichment-actions {
+    grid-column: 1 / -1;
   }
 }
