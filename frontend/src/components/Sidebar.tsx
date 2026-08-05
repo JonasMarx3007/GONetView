@@ -225,8 +225,6 @@ export function Sidebar({
   onRunEnrichment,
 }: SidebarProps) {
   const [sections, setSections] = useState(readStoredSections);
-  const detailsSectionRef = useRef<HTMLElement | null>(null);
-  const detailsHeaderRef = useRef<HTMLButtonElement | null>(null);
   const graphSearchInputRef = useRef<HTMLInputElement | null>(null);
   const previousDetailIdRef = useRef(selectedTerm?.id ?? "");
   const suggestions = inputMode === "go" ? termSuggestions : geneSuggestions;
@@ -606,8 +604,6 @@ export function Sidebar({
             title="Details"
             open={sections.details}
             onToggle={() => toggleSection("details")}
-            sectionRef={detailsSectionRef}
-            headerRef={detailsHeaderRef}
           >
             {stats && (
               <dl className="stats">
@@ -691,20 +687,16 @@ function SidebarSection({
   title,
   open,
   onToggle,
-  sectionRef,
-  headerRef,
   children,
 }: {
   title: string;
   open: boolean;
   onToggle: () => void;
-  sectionRef?: Ref<HTMLElement>;
-  headerRef?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
   return (
-    <section ref={sectionRef} className={`sidebar-section ${open ? "open" : ""}`.trim()}>
-      <button ref={headerRef} type="button" className="section-header" onClick={onToggle} aria-expanded={open}>
+    <section className={`sidebar-section ${open ? "open" : ""}`.trim()}>
+      <button type="button" className="section-header" onClick={onToggle} aria-expanded={open}>
         <span>{title}</span>
         {open ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
       </button>

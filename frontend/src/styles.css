@@ -136,13 +136,6 @@ input:focus-visible {
   padding: 7px 0 10px;
 }
 
-.section-help {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .brand svg {
   color: #067b9f;
 }
@@ -544,23 +537,6 @@ output {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
-}
-
-.link-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-self: start;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.link-button:hover {
-  text-decoration: underline;
 }
 
 .example-links {
