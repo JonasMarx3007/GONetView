@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchFocusedGraph, fetchOrganisms, fetchStats } from "./api";
+import {
+  DEFAULT_MAX_TERM_SIZE,
+  DEFAULT_MIN_TERM_SIZE,
+  fetchEnrichment,
+  fetchFocusedGraph,
+  fetchOrganisms,
+  fetchStats,
+} from "./api";
 import { APP_NAME, APP_REPOSITORY_URL, APP_VERSION } from "./appInfo";
+import { EnrichmentPanel } from "./components/EnrichmentPanel";
 import { GraphPane } from "./components/GraphPane";
 import { Sidebar } from "./components/Sidebar";
-import { exportFigure, exportMetadataJson } from "./exportFigure";
+import { exportEnrichmentCsv, exportFigure, exportMetadataJson } from "./exportFigure";
+import { enrichmentCsv } from "./enrichment";
 import { findGraphSearchMatches, nextGraphSearchIndex } from "./graphSearch";
 import { useGraphAutoFit, type FitMode } from "./hooks/useGraphAutoFit";
 import { useGraphLayout } from "./hooks/useGraphLayout";
@@ -12,8 +21,8 @@ import { useTermGenes } from "./hooks/useTermGenes";
 import { isAutoRefreshInputReady, parseGenes, parseTerms, replaceActiveSearchToken, type InputMode } from "./inputParsing";
 import type { LayoutMode, PositionedNode } from "./layout";
 import { DEFAULT_RELATIONS } from "./theme";
-import type { GeneRecord, GOTerm, GraphResponse, Organism, StatsResponse } from "./types";
-import { readUrlState, writeUrlState } from "./urlState";
+import type { EnrichmentResponse, GeneRecord, GOTerm, GraphResponse, Organism, StatsResponse } from "./types";
+import { readUrlState, writeUrlState, type ExportFormat } from "./urlState";
 
 const DEFAULT_TERM = "GO:0019319";
 const CONTROL_AUTO_REFRESH_DELAY_MS = 260;
@@ -23,6 +32,8 @@ const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 2.25;
 const SEARCH_FOCUS_MIN_ZOOM = 1.05;
 const SVG_CANVAS_MARGIN = 18;
+const DEFAULT_ENRICHMENT_PANEL_HEIGHT = 420;
+const MIN_ENRICHMENT_PANEL_HEIGHT = 180;
 const initialUrlState = readUrlState();
 const initialInputMode = initialUrlState.inputMode ?? "go";
 const initialQuery = initialUrlState.query ?? DEFAULT_TERM;
@@ -32,6 +43,9 @@ type LoadFocusedOptions = {
   preserveCurrentGraph?: boolean;
   showFetching?: boolean;
   silentErrors?: boolean;
+  mode?: InputMode;
+  stage?: string;
+  keepSourceNote?: boolean;
 };
 
 export function App() {
@@ -68,15 +82,34 @@ export function App() {
   const [showDescendantGenes, setShowDescendantGenes] = useState(false);
   const [autoRefreshPending, setAutoRefreshPending] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
+  const [enrichmentQuery, setEnrichmentQuery] = useState(initialUrlState.enrichmentQuery ?? "");
+  const [enrichmentBackground, setEnrichmentBackground] = useState(initialUrlState.enrichmentBackground ?? "");
+  const [enrichmentPropagate, setEnrichmentPropagate] = useState(initialUrlState.enrichmentPropagate ?? true);
+  const [enrichmentMinTermSize, setEnrichmentMinTermSize] = useState(initialUrlState.enrichmentMinTermSize ?? DEFAULT_MIN_TERM_SIZE);
+  const [enrichmentCuratedOnly, setEnrichmentCuratedOnly] = useState(initialUrlState.enrichmentCuratedOnly ?? false);
+  const [enrichmentReduceRedundancy, setEnrichmentReduceRedundancy] = useState(initialUrlState.enrichmentReduceRedundancy ?? false);
+  const [enrichmentMaxTermSize, setEnrichmentMaxTermSize] = useState(initialUrlState.enrichmentMaxTermSize ?? DEFAULT_MAX_TERM_SIZE);
+  const [enrichment, setEnrichment] = useState<EnrichmentResponse | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+  const [enrichmentError, setEnrichmentError] = useState("");
+  const [enrichmentRunSignature, setEnrichmentRunSignature] = useState("");
+  // Explains where the current graph came from when it was not built from the query box.
+  const [graphSourceNote, setGraphSourceNote] = useState("");
+  const [enrichmentCollapsed, setEnrichmentCollapsed] = useState(false);
+  const [enrichmentPanelHeight, setEnrichmentPanelHeight] = useState(DEFAULT_ENRICHMENT_PANEL_HEIGHT);
 
   const autoRefreshTimer = useRef<number | undefined>(undefined);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const graphRequestRef = useRef(0);
+  const enrichmentRequestRef = useRef(0);
   const autoRefreshReadyRef = useRef(false);
   const autoRefreshValueKeyRef = useRef("");
   const autoRefreshRelationsKeyRef = useRef("");
   const lastGraphSignatureRef = useRef("");
+  const pendingAutoRunRef = useRef(initialUrlState.autoRunEnrichment ?? false);
+  const pendingAutoMapRef = useRef(initialUrlState.autoMapTopHits ?? 0);
+  const pendingAutoExportRef = useRef<ExportFormat[]>(initialUrlState.autoExport ?? []);
 
   const { termSuggestions, geneSuggestions, clearSuggestions } = useSuggestions({ query, inputMode, organism, includeObsolete });
   const { detailGenes, detailGeneCount } = useTermGenes(detailId, organism, showDescendantGenes);
@@ -105,10 +138,85 @@ export function App() {
   }, [graphSearch, laidOut]);
   const graphSearchMatchIds = useMemo(() => new Set(graphSearchMatches.map((node) => node.id)), [graphSearchMatches]);
   const activeSearchMatch = activeSearchIndex >= 0 ? graphSearchMatches[activeSearchIndex] : undefined;
+  const currentEnrichmentSignature = useMemo(() => {
+    return enrichmentSignature(parseGenes(enrichmentQuery), parseGenes(enrichmentBackground));
+  }, [
+    enrichmentQuery,
+    enrichmentBackground,
+    organism,
+    namespace,
+    includeObsolete,
+    enrichmentPropagate,
+    enrichmentMinTermSize,
+    enrichmentMaxTermSize,
+    enrichmentCuratedOnly,
+    enrichmentReduceRedundancy,
+  ]);
+  const enrichmentStale = Boolean(enrichment) && currentEnrichmentSignature !== enrichmentRunSignature;
 
   useEffect(() => {
     setActiveSearchIndex(graphSearchMatches.length > 0 ? 0 : -1);
   }, [graphSearch, graphSearchMatches.length]);
+
+  // A link can ask for a full run: enrichment, then a graph of its strongest hits, then a file.
+  useEffect(() => {
+    if (!pendingAutoRunRef.current || !enrichmentQuery.trim()) {
+      return;
+    }
+    pendingAutoRunRef.current = false;
+    runEnrichment();
+  }, []);
+
+  useEffect(() => {
+    const topHits = pendingAutoMapRef.current;
+    if (!enrichment || !topHits || topHits <= 0) {
+      return;
+    }
+    pendingAutoMapRef.current = 0;
+    const top = [...enrichment.results]
+      .sort((a, b) => a.adjustedPValue - b.adjustedPValue || a.pValue - b.pValue)
+      .slice(0, topHits);
+    if (top.length > 0) {
+      mapEnrichmentTerms(top.map((result) => result.term.id), `top ${top.length} enriched terms by FDR`);
+    }
+  }, [enrichment]);
+
+  useEffect(() => {
+    const formats = pendingAutoExportRef.current;
+    if (formats.length === 0 || loading || layouting || buildingConnections || enrichmentLoading) {
+      return;
+    }
+    const wantsFigure = formats.some((format) => format === "png" || format === "svg" || format === "pdf");
+    if (wantsFigure && !laidOut) {
+      return;
+    }
+    if (formats.includes("csv") && !enrichment) {
+      // The enrichment may still be on its way in; only complain once it cannot arrive.
+      if (pendingAutoRunRef.current) {
+        return;
+      }
+      setEnrichmentError("Exporting the enrichment table needs a gene list and run=1 in the link.");
+      pendingAutoExportRef.current = formats.filter((format) => format !== "csv");
+      return;
+    }
+
+    // One frame after the final layout so the SVG on screen is what gets written out.
+    const timer = window.setTimeout(() => {
+      pendingAutoExportRef.current = [];
+      for (const format of formats) {
+        if (format === "csv") {
+          if (enrichment) {
+            exportEnrichmentCsv(enrichmentCsv(enrichment.results), enrichment.organism.key);
+          }
+        } else if (format === "json") {
+          exportMetadata();
+        } else {
+          exportFigure(svgRef.current, format);
+        }
+      }
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [laidOut, loading, layouting, buildingConnections, enrichmentLoading, enrichment]);
 
   useEffect(() => {
     if (!activeSearchMatch || loading || buildingConnections || layouting) {
@@ -130,7 +238,7 @@ export function App() {
       window.requestAnimationFrame(() => {
         const left = Math.max(0, (node.x + node.width / 2) * nextScale + SVG_CANVAS_MARGIN - canvas.clientWidth / 2);
         const top = Math.max(0, (node.y + node.height / 2) * nextScale + SVG_CANVAS_MARGIN - canvas.clientHeight / 2);
-        canvas.scrollTo({ left, top, behavior: "smooth" });
+        canvas.scrollTo({ left, top, behavior: prefersReducedMotion() ? "auto" : "smooth" });
       });
     });
   }
@@ -222,6 +330,13 @@ export function App() {
       showLegend,
       fitMode,
       graphSearch,
+      enrichmentQuery,
+      enrichmentBackground,
+      enrichmentPropagate,
+        enrichmentCuratedOnly,
+      enrichmentReduceRedundancy,
+      enrichmentMinTermSize,
+      enrichmentMaxTermSize,
     });
   }, [
     inputMode,
@@ -239,11 +354,18 @@ export function App() {
     showLegend,
     fitMode,
     graphSearch,
+    enrichmentQuery,
+    enrichmentBackground,
+    enrichmentPropagate,
+    enrichmentCuratedOnly,
+    enrichmentReduceRedundancy,
+    enrichmentMinTermSize,
+    enrichmentMaxTermSize,
   ]);
 
-  function graphSignature(values: string[]): string {
+  function graphSignature(values: string[], mode: InputMode = inputMode): string {
     return JSON.stringify({
-      mode: inputMode,
+      mode,
       values,
       organism,
       namespace,
@@ -257,25 +379,28 @@ export function App() {
   }
 
   function loadFocused(input = query, options: LoadFocusedOptions = {}) {
-    const { preserveCurrentGraph = false, showFetching = true, silentErrors = false } = options;
-    const values = inputMode === "go" ? parseTerms(input) : parseGenes(input);
+    const { preserveCurrentGraph = false, showFetching = true, silentErrors = false, mode = inputMode, stage } = options;
+    const values = mode === "go" ? parseTerms(input) : parseGenes(input);
     if (values.length === 0) {
       if (!silentErrors) {
-        setError(inputMode === "go" ? "Enter at least one GO ID" : "Enter at least one gene symbol or ID");
+        setError(mode === "go" ? "Enter at least one GO ID" : "Enter at least one gene symbol or ID");
       }
       return;
     }
 
     window.clearTimeout(autoRefreshTimer.current);
     setAutoRefreshPending(false);
+    if (!options.keepSourceNote) {
+      setGraphSourceNote("");
+    }
     const requestId = graphRequestRef.current + 1;
     graphRequestRef.current = requestId;
-    const requestedMode = inputMode;
-    const requestSignature = graphSignature(values);
+    const requestedMode = mode;
+    const requestSignature = graphSignature(values, mode);
 
     if (showFetching) {
       setLoading(true);
-      setLoadingStage(inputMode === "gene" ? `Loading ${organismLabel(organisms, organism)} annotations` : "Building GO network");
+      setLoadingStage(stage ?? (mode === "gene" ? `Loading ${organismLabel(organisms, organism)} annotations` : "Building GO network"));
     }
     if (!silentErrors) {
       setError("");
@@ -289,7 +414,7 @@ export function App() {
     }
 
     fetchFocusedGraph(
-      inputMode,
+      mode,
       values,
       organism,
       ancestors,
@@ -312,7 +437,7 @@ export function App() {
         setDetailId(payload.selectedTerms[0] ?? values[0]);
         const nextQuery = requestedMode === "gene" && payload.selectedGenes ? payload.selectedGenes.map((gene) => gene.symbol).join("\n") : values.join("\n");
         const nextValues = requestedMode === "gene" ? parseGenes(nextQuery) : parseTerms(nextQuery);
-        lastGraphSignatureRef.current = nextValues.length > 0 ? graphSignature(nextValues) : requestSignature;
+        lastGraphSignatureRef.current = nextValues.length > 0 ? graphSignature(nextValues, requestedMode) : requestSignature;
         autoRefreshReadyRef.current = true;
         setQuery(nextQuery);
         setError(graphWarnings(payload, organismLabel(organisms, organism), includeObsolete));
@@ -353,6 +478,87 @@ export function App() {
     clearSuggestions();
     setError("");
     setLayoutNotice("");
+  }
+
+  function enrichmentSignature(genes: string[], background: string[]): string {
+    return JSON.stringify({
+      genes,
+      background,
+      organism,
+      namespace,
+      includeObsolete,
+      propagate: enrichmentPropagate,
+      minTermSize: enrichmentMinTermSize,
+      maxTermSize: enrichmentMaxTermSize,
+      curatedOnly: enrichmentCuratedOnly,
+      reduceRedundancy: enrichmentReduceRedundancy,
+    });
+  }
+
+  function useGraphGenesForEnrichment() {
+    setEnrichmentQuery(parseGenes(query).join("\n"));
+    setEnrichmentError("");
+  }
+
+  function runEnrichment() {
+    const genes = parseGenes(enrichmentQuery);
+    if (genes.length === 0) {
+      setEnrichmentError("Enter at least one gene symbol or ID to test.");
+      return;
+    }
+    const background = parseGenes(enrichmentBackground);
+    const signature = enrichmentSignature(genes, background);
+    const requestId = enrichmentRequestRef.current + 1;
+    enrichmentRequestRef.current = requestId;
+    setEnrichmentLoading(true);
+    setEnrichmentError("");
+    fetchEnrichment(
+      genes,
+      background,
+      organism,
+      namespace,
+      includeObsolete,
+      enrichmentPropagate,
+      enrichmentMinTermSize,
+      enrichmentMaxTermSize,
+      enrichmentCuratedOnly,
+      enrichmentReduceRedundancy,
+    )
+      .then((response) => {
+        if (requestId === enrichmentRequestRef.current) {
+          setEnrichment(response);
+          setEnrichmentRunSignature(signature);
+        }
+      })
+      .catch((err: Error) => {
+        if (requestId === enrichmentRequestRef.current) {
+          setEnrichmentError(err.message);
+        }
+      })
+      .finally(() => {
+        if (requestId === enrichmentRequestRef.current) {
+          setEnrichmentLoading(false);
+        }
+      });
+  }
+
+  function resizeEnrichmentPanel(nextHeight: number) {
+    const ceiling = Math.max(MIN_ENRICHMENT_PANEL_HEIGHT, window.innerHeight - 220);
+    setEnrichmentPanelHeight(Math.min(ceiling, Math.max(MIN_ENRICHMENT_PANEL_HEIGHT, nextHeight)));
+  }
+
+  function mapEnrichmentTerms(termIds: string[], description: string) {
+    if (termIds.length === 0) {
+      return;
+    }
+    setGraphSourceNote(description);
+    const nextQuery = termIds.join("\n");
+    clearSuggestions();
+    setInputMode("go");
+    setQuery(nextQuery);
+    autoRefreshValueKeyRef.current = `go:${termIds.join("\u0001")}`;
+    lastGraphSignatureRef.current = graphSignature(termIds, "go");
+    loadFocused(nextQuery, { mode: "go", stage: "Building enriched GO network", keepSourceNote: true });
   }
 
   function chooseTerm(term: GOTerm) {
@@ -410,6 +616,29 @@ export function App() {
             genesWithoutTerms: graph.genesWithoutTerms ?? [],
             annotationDate: graph.annotationDate ?? null,
             organism: graph.organism ?? null,
+          }
+        : null,
+      enrichment: enrichment
+        ? {
+            backgroundMode: enrichment.backgroundMode,
+            backgroundSize: enrichment.backgroundSize,
+            backgroundSources: enrichment.backgroundSources,
+            backgroundKind: enrichment.backgroundKind,
+            excludedEntities: enrichment.excludedEntities,
+            propagated: enrichment.propagated,
+            testedTerms: enrichment.testedTerms,
+            testedTermsByNamespace: enrichment.testedTermsByNamespace,
+            minTermSize: enrichment.minTermSize,
+            maxTermSize: enrichment.maxTermSize,
+            evidenceMode: enrichment.evidenceMode,
+            excludedWithoutCuratedEvidence: enrichment.excludedWithoutCuratedEvidence,
+            redundancyReduced: enrichment.redundancyReduced,
+            redundantTermsRemoved: enrichment.redundantTermsRemoved,
+            queryGenes: enrichment.queryGenes,
+            missingGenes: enrichment.missingGenes,
+            backgroundMissingGenes: enrichment.backgroundMissingGenes,
+            outsideBackgroundGenes: enrichment.outsideBackgroundGenes,
+            results: enrichment.results,
           }
         : null,
     });
@@ -475,6 +704,16 @@ export function App() {
         geneSuggestions={geneSuggestions}
         autoRefreshPending={autoRefreshPending}
         copyStatus={copyStatus}
+        enrichmentQuery={enrichmentQuery}
+        enrichmentBackground={enrichmentBackground}
+        enrichmentPropagate={enrichmentPropagate}
+        enrichmentMinTermSize={enrichmentMinTermSize}
+        enrichmentMaxTermSize={enrichmentMaxTermSize}
+        enrichmentCuratedOnly={enrichmentCuratedOnly}
+        enrichmentReduceRedundancy={enrichmentReduceRedundancy}
+        enrichmentLoading={enrichmentLoading}
+        enrichmentError={enrichmentError}
+        enrichmentStale={enrichmentStale}
         onToggleExpanded={() => setSidebarExpanded((value) => !value)}
         onInputModeChange={switchInputMode}
         onQueryChange={setQuery}
@@ -505,11 +744,20 @@ export function App() {
         onShowDescendantGenesChange={setShowDescendantGenes}
         onChooseTerm={chooseTerm}
         onChooseGene={chooseGene}
+        onEnrichmentQueryChange={setEnrichmentQuery}
+        onEnrichmentBackgroundChange={setEnrichmentBackground}
+        onEnrichmentPropagateChange={setEnrichmentPropagate}
+        onEnrichmentMinTermSizeChange={setEnrichmentMinTermSize}
+        onEnrichmentMaxTermSizeChange={setEnrichmentMaxTermSize}
+        onEnrichmentCuratedOnlyChange={setEnrichmentCuratedOnly}
+        onEnrichmentReduceRedundancyChange={setEnrichmentReduceRedundancy}
+        onRunEnrichment={runEnrichment}
       />
 
       <GraphPane
         sidebarExpanded={sidebarExpanded}
         graph={graph}
+        graphSourceNote={graphSourceNote}
         trimConnections={trimConnections}
         connectionGraph={connectionGraph}
         selectedTerms={selectedTerms}
@@ -533,9 +781,30 @@ export function App() {
         onExpandSidebar={() => setSidebarExpanded(true)}
         onSelectNode={setDetailId}
         onOpenNode={(id) => loadFocused(id)}
+        enrichmentCollapsed={enrichmentCollapsed}
+        enrichmentPanelHeight={enrichmentPanelHeight}
+        enrichmentPanel={
+          enrichment ? (
+            <EnrichmentPanel
+              enrichment={enrichment}
+              collapsed={enrichmentCollapsed}
+              onToggleCollapsed={() => setEnrichmentCollapsed((value) => !value)}
+              onResize={resizeEnrichmentPanel}
+              stale={enrichmentStale}
+              rerunning={enrichmentLoading}
+              onRerun={runEnrichment}
+              onMapTerms={mapEnrichmentTerms}
+              onClose={() => setEnrichment(null)}
+            />
+          ) : undefined
+        }
       />
     </div>
   );
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 }
 
 function organismLabel(organisms: Organism[], key: string): string {

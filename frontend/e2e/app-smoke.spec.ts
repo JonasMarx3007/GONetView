@@ -22,6 +22,56 @@ test("loads a focused GO graph and exposes details, search, and export controls"
   await expect(page.getByRole("button", { name: /JSON/ })).toBeVisible();
 });
 
+test("runs enrichment from its own gene list without disturbing the graph query", async ({ page }) => {
+  await routeFixtureData(page);
+  await page.goto("/?q=GO%3A0000002&org=mini&anc=1&desc=0&layout=classic&fit=height");
+
+  await page.getByPlaceholder("TP53, BRCA1, ATM").fill("GENEA");
+  // The fixture ontology is tiny, so widen the tested term-size range past its defaults.
+  await page.getByLabel("Smallest term").fill("1");
+  await page.getByLabel("Largest term").fill("0");
+  await page.getByRole("button", { name: "Run enrichment" }).click();
+
+  await expect(page.getByRole("region", { name: "GO enrichment results" })).toBeVisible();
+  await expect(page.getByText(/1 query genes/)).toBeVisible();
+
+  // The qualitative graph pipeline stays on its own GO query.
+  await expect(page.getByPlaceholder("GO:0019319\nGO:0046364")).toHaveValue("GO:0000002");
+  await expect(page.locator(".go-node", { hasText: "GO:0000002" })).toBeVisible();
+
+  // Editing the graph query keeps the enrichment result instead of discarding it.
+  await page.getByPlaceholder("GO:0019319\nGO:0046364").fill("GO:0000003");
+  await expect(page.getByRole("region", { name: "GO enrichment results" })).toBeVisible();
+
+  await page.getByLabel("Maximum FDR").fill("1");
+  await expect(page.locator(".enrichment-table tbody tr")).toHaveCount(2);
+});
+
+test("maps selected enrichment terms as a graph state the URL reproduces", async ({ page }) => {
+  await routeFixtureData(page);
+  await page.goto("/?q=GO%3A0000001&org=mini&anc=1&desc=0&layout=classic&fit=height");
+
+  await page.getByPlaceholder("TP53, BRCA1, ATM").fill("GENEA");
+  // The fixture ontology is tiny, so widen the tested term-size range past its defaults.
+  await page.getByLabel("Smallest term").fill("1");
+  await page.getByLabel("Largest term").fill("0");
+  await page.getByRole("button", { name: "Run enrichment" }).click();
+  await expect(page.getByRole("region", { name: "GO enrichment results" })).toBeVisible();
+
+  await page.getByLabel("Maximum FDR").fill("1");
+  await page.getByLabel("Select GO:0000002").check();
+  await page.getByRole("button", { name: /Map selected \(1\)/ }).click();
+
+  await expect(page.locator(".go-node", { hasText: "GO:0000002" })).toBeVisible();
+  await expect(page.getByPlaceholder("GO:0019319\nGO:0046364")).toHaveValue("GO:0000002");
+  await expect(page).toHaveURL(/q=GO%3A0000002/);
+
+  // Changing a scope control keeps the mapped terms instead of reverting to the previous query.
+  await page.getByLabel("Include obsolete terms").check();
+  await expect(page.locator(".go-node", { hasText: "GO:0000002" })).toBeVisible();
+  await expect(page.getByPlaceholder("GO:0019319\nGO:0046364")).toHaveValue("GO:0000002");
+});
+
 async function routeFixtureData(page: import("@playwright/test").Page): Promise<void> {
   const fixtures = new Map<string, unknown>([
     [

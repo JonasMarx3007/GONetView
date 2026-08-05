@@ -6,6 +6,7 @@ import {
   Clipboard,
   Download,
   FileJson,
+  FlaskConical,
   GitBranch,
   Network,
   PanelLeftClose,
@@ -18,13 +19,14 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { APP_VERSION } from "../appInfo";
-import { SAVED_EXAMPLES } from "../examples";
+import { ENRICHMENT_EXAMPLES, SAVED_EXAMPLES } from "../examples";
 import type { FitMode } from "../hooks/useGraphAutoFit";
 import type { InputMode } from "../inputParsing";
 import type { LayoutMode } from "../layout";
 import { RELATION_STYLES } from "../theme";
 import type { GeneRecord, GOTerm, Organism, StatsResponse } from "../types";
 import { TermDetail } from "./TermDetail";
+import { formatCount } from "../formatNumber";
 
 type SidebarProps = {
   expanded: boolean;
@@ -58,6 +60,16 @@ type SidebarProps = {
   geneSuggestions: GeneRecord[];
   autoRefreshPending: boolean;
   copyStatus: string;
+  enrichmentQuery: string;
+  enrichmentBackground: string;
+  enrichmentPropagate: boolean;
+  enrichmentCuratedOnly: boolean;
+  enrichmentReduceRedundancy: boolean;
+  enrichmentMinTermSize: number;
+  enrichmentMaxTermSize: number;
+  enrichmentLoading: boolean;
+  enrichmentError: string;
+  enrichmentStale: boolean;
   onToggleExpanded: () => void;
   onInputModeChange: (mode: InputMode) => void;
   onQueryChange: (value: string) => void;
@@ -88,12 +100,21 @@ type SidebarProps = {
   onShowDescendantGenesChange: (value: boolean) => void;
   onChooseTerm: (term: GOTerm) => void;
   onChooseGene: (gene: GeneRecord) => void;
+  onEnrichmentQueryChange: (value: string) => void;
+  onEnrichmentBackgroundChange: (value: string) => void;
+  onEnrichmentPropagateChange: (value: boolean) => void;
+  onEnrichmentCuratedOnlyChange: (value: boolean) => void;
+  onEnrichmentReduceRedundancyChange: (value: boolean) => void;
+  onEnrichmentMinTermSizeChange: (value: number) => void;
+  onEnrichmentMaxTermSizeChange: (value: number) => void;
+  onRunEnrichment: () => void;
 };
 
-type SectionKey = "input" | "scope" | "layout" | "relations" | "details" | "export" | "references";
+type SectionKey = "input" | "enrichment" | "scope" | "layout" | "relations" | "details" | "export" | "references";
 
 const DEFAULT_SECTIONS: Record<SectionKey, boolean> = {
   input: true,
+  enrichment: true,
   scope: true,
   layout: true,
   relations: false,
@@ -101,6 +122,26 @@ const DEFAULT_SECTIONS: Record<SectionKey, boolean> = {
   export: false,
   references: false,
 };
+
+// Which sections are open is a workspace preference, so it survives the page loads that saved
+// example links cause. Without this, opening an example silently rearranged the sidebar.
+const SECTION_STORAGE_KEY = "gonetview-sidebar-sections";
+
+function readStoredSections(): Record<SectionKey, boolean> {
+  if (typeof window === "undefined") {
+    return DEFAULT_SECTIONS;
+  }
+  try {
+    const stored = window.localStorage.getItem(SECTION_STORAGE_KEY);
+    if (!stored) {
+      return DEFAULT_SECTIONS;
+    }
+    const parsed = JSON.parse(stored) as Partial<Record<SectionKey, boolean>>;
+    return { ...DEFAULT_SECTIONS, ...parsed };
+  } catch {
+    return DEFAULT_SECTIONS;
+  }
+}
 
 export function Sidebar({
   expanded,
@@ -134,6 +175,16 @@ export function Sidebar({
   geneSuggestions,
   autoRefreshPending,
   copyStatus,
+  enrichmentQuery,
+  enrichmentBackground,
+  enrichmentPropagate,
+  enrichmentCuratedOnly,
+  enrichmentReduceRedundancy,
+  enrichmentMinTermSize,
+  enrichmentMaxTermSize,
+  enrichmentLoading,
+  enrichmentError,
+  enrichmentStale,
   onToggleExpanded,
   onInputModeChange,
   onQueryChange,
@@ -164,8 +215,16 @@ export function Sidebar({
   onShowDescendantGenesChange,
   onChooseTerm,
   onChooseGene,
+  onEnrichmentQueryChange,
+  onEnrichmentBackgroundChange,
+  onEnrichmentPropagateChange,
+  onEnrichmentCuratedOnlyChange,
+  onEnrichmentReduceRedundancyChange,
+  onEnrichmentMinTermSizeChange,
+  onEnrichmentMaxTermSizeChange,
+  onRunEnrichment,
 }: SidebarProps) {
-  const [sections, setSections] = useState(DEFAULT_SECTIONS);
+  const [sections, setSections] = useState(readStoredSections);
   const detailsSectionRef = useRef<HTMLElement | null>(null);
   const detailsHeaderRef = useRef<HTMLButtonElement | null>(null);
   const graphSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -175,6 +234,14 @@ export function Sidebar({
   function toggleSection(key: SectionKey) {
     setSections((current) => ({ ...current, [key]: !current[key] }));
   }
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(sections));
+    } catch {
+      // A full or blocked storage must not break the sidebar.
+    }
+  }, [sections]);
 
   useEffect(() => {
     const nextDetailId = selectedTerm?.id ?? "";
@@ -188,13 +255,9 @@ export function Sidebar({
       return;
     }
 
+    // The section is opened, but the viewport is left alone: scrolling here used to jump the
+    // sidebar away from whatever the reader was doing on every selection change.
     setSections((current) => ({ ...current, details: true }));
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        detailsSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-        detailsHeaderRef.current?.focus({ preventScroll: true });
-      });
-    });
   }, [selectedTerm?.id]);
 
   useEffect(() => {
@@ -248,10 +311,10 @@ export function Sidebar({
             <div className="field">
               <span>Search by</span>
               <div className="mode-toggle">
-                <button className={inputMode === "go" ? "active" : ""} onClick={() => onInputModeChange("go")}>
+                <button type="button" aria-pressed={inputMode === "go"} className={inputMode === "go" ? "active" : ""} onClick={() => onInputModeChange("go")}>
                   GO terms
                 </button>
-                <button className={inputMode === "gene" ? "active" : ""} onClick={() => onInputModeChange("gene")}>
+                <button type="button" aria-pressed={inputMode === "gene"} className={inputMode === "gene" ? "active" : ""} onClick={() => onInputModeChange("gene")}>
                   Genes
                 </button>
               </div>
@@ -280,14 +343,18 @@ export function Sidebar({
                 {inputMode === "go"
                   ? termSuggestions.map((term) => (
                       <button key={term.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onChooseTerm(term)}>
-                        <strong>{term.id}</strong>
-                        <span>{term.name}</span>
+                        <span className="suggestion-body">
+                          <strong>{term.id}</strong>
+                          <span>{term.name}</span>
+                        </span>
                       </button>
                     ))
                   : geneSuggestions.map((gene) => (
                       <button key={gene.key} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onChooseGene(gene)}>
-                        <strong>{gene.symbol}</strong>
-                        <span>{gene.name || gene.key}</span>
+                        <span className="suggestion-body">
+                          <strong>{gene.symbol}</strong>
+                          <span>{gene.name || gene.key}</span>
+                        </span>
                       </button>
                     ))}
               </div>
@@ -309,6 +376,116 @@ export function Sidebar({
               ))}
             </div>
             {autoRefreshPending && <div className="status-pill">Updating soon</div>}
+          </SidebarSection>
+
+          <SidebarSection title="Enrichment (ORA)" open={sections.enrichment} onToggle={() => toggleSection("enrichment")}>
+            <label className="field">
+              <span>Query genes</span>
+              <div className="search-box compact">
+                <textarea
+                  value={enrichmentQuery}
+                  onChange={(event) => onEnrichmentQueryChange(event.target.value)}
+                  placeholder="TP53, BRCA1, ATM"
+                  rows={3}
+                />
+              </div>
+            </label>
+            <div className="example-links" aria-label="Saved gene set examples">
+              <span>Examples</span>
+              {ENRICHMENT_EXAMPLES.map((example) => (
+                <a key={example.id} href={`?${example.search}`} title={example.summary}>
+                  <Bookmark size={14} />
+                  {example.label}
+                </a>
+              ))}
+            </div>
+            <label className="field">
+              <span>Background genes (optional)</span>
+              <div className="search-box compact">
+                <textarea
+                  value={enrichmentBackground}
+                  onChange={(event) => onEnrichmentBackgroundChange(event.target.value)}
+                  placeholder="Leave empty for all annotated genes"
+                  rows={3}
+                />
+              </div>
+            </label>
+            <div className="field">
+              <span>Annotations to test</span>
+              <div className="mode-toggle">
+                <button
+                  type="button"
+                  aria-pressed={enrichmentPropagate}
+                  className={enrichmentPropagate ? "active" : ""}
+                  onClick={() => onEnrichmentPropagateChange(true)}
+                  title="A gene annotated to a term also counts for that term's is_a and part_of ancestors"
+                >
+                  With ancestors
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!enrichmentPropagate}
+                  className={!enrichmentPropagate ? "active" : ""}
+                  onClick={() => onEnrichmentPropagateChange(false)}
+                  title="Only the terms a gene is annotated to directly in the GAF file"
+                >
+                  Direct only
+                </button>
+              </div>
+            </div>
+            <div className="term-size-row">
+              <label>
+                <span>Smallest term</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={enrichmentMinTermSize}
+                  onChange={(event) => onEnrichmentMinTermSizeChange(Math.max(1, Math.floor(Number(event.target.value) || 1)))}
+                />
+              </label>
+              <label>
+                <span>Largest term</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={enrichmentMaxTermSize}
+                  onChange={(event) => onEnrichmentMaxTermSizeChange(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
+                />
+              </label>
+            </div>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={enrichmentCuratedOnly}
+                onChange={(event) => onEnrichmentCuratedOnlyChange(event.target.checked)}
+              />
+              <span>Use curated evidence only (drop IEA)</span>
+            </label>
+            <p className="field-help">
+              Electronic annotations (evidence code IEA) are machine-inferred and never reviewed by a curator. Dropping them
+              tests fewer, better-supported annotations and shrinks the background to genes that keep one.
+            </p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={enrichmentReduceRedundancy}
+                onChange={(event) => onEnrichmentReduceRedundancyChange(event.target.checked)}
+              />
+              <span>Reduce redundant parent terms</span>
+            </label>
+            <p className="field-help">
+              GO terms nest, so a significant term and its parents often report the same genes. This keeps the most
+              significant term of each parent-child chain and hides parents whose hits it already covers.
+            </p>
+            <div className="actions">
+              <button type="button" onClick={onRunEnrichment} disabled={enrichmentLoading || !enrichmentQuery.trim()}>
+                <FlaskConical size={17} />
+                {enrichmentLoading ? "Calculating…" : enrichmentStale ? "Rerun enrichment" : "Run enrichment"}
+              </button>
+            </div>
+            {enrichmentError && <div className="inline-error">{enrichmentError}</div>}
           </SidebarSection>
 
           <SidebarSection title="Scope" open={sections.scope} onToggle={() => toggleSection("scope")}>
@@ -355,10 +532,10 @@ export function Sidebar({
             <div className="field">
               <span>Layout</span>
               <div className="mode-toggle">
-                <button className={layoutMode === "classic" ? "active" : ""} onClick={() => onLayoutModeChange("classic")}>
+                <button type="button" aria-pressed={layoutMode === "classic"} className={layoutMode === "classic" ? "active" : ""} onClick={() => onLayoutModeChange("classic")}>
                   Classic
                 </button>
-                <button className={layoutMode === "readable" ? "active" : ""} onClick={() => onLayoutModeChange("readable")}>
+                <button type="button" aria-pressed={layoutMode === "readable"} className={layoutMode === "readable" ? "active" : ""} onClick={() => onLayoutModeChange("readable")}>
                   Readable
                 </button>
               </div>
@@ -367,10 +544,10 @@ export function Sidebar({
             <div className="field">
               <span>Fit</span>
               <div className="mode-toggle fit-toggle">
-                <button className={fitMode === "height" ? "active" : ""} onClick={() => onFitModeChange("height")}>
+                <button type="button" aria-pressed={fitMode === "height"} className={fitMode === "height" ? "active" : ""} onClick={() => onFitModeChange("height")}>
                   Fit height
                 </button>
-                <button className={fitMode === "width" ? "active" : ""} onClick={() => onFitModeChange("width")}>
+                <button type="button" aria-pressed={fitMode === "width"} className={fitMode === "width" ? "active" : ""} onClick={() => onFitModeChange("width")}>
                   Fit width
                 </button>
               </div>
@@ -436,11 +613,11 @@ export function Sidebar({
               <dl className="stats">
                 <div>
                   <dt>Terms</dt>
-                  <dd>{stats.terms.toLocaleString()}</dd>
+                  <dd>{formatCount(stats.terms)}</dd>
                 </div>
                 <div>
                   <dt>is_a edges</dt>
-                  <dd>{stats.edges.toLocaleString()}</dd>
+                  <dd>{formatCount(stats.edges)}</dd>
                 </div>
               </dl>
             )}

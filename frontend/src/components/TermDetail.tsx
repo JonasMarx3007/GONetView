@@ -1,4 +1,5 @@
 import type { GeneRecord, GOTerm } from "../types";
+import { formatCount } from "../formatNumber";
 
 type TermDetailProps = {
   selectedTerm: GOTerm;
@@ -22,15 +23,15 @@ export function TermDetail({
       <dl className="term-counts">
         <div>
           <dt>Parents</dt>
-          <dd>{selectedTerm.parentCount.toLocaleString()}</dd>
+          <dd>{formatCount(selectedTerm.parentCount)}</dd>
         </div>
         <div>
           <dt>Children</dt>
-          <dd>{selectedTerm.childCount.toLocaleString()}</dd>
+          <dd>{formatCount(selectedTerm.childCount)}</dd>
         </div>
         <div>
           <dt>{showDescendantGenes ? "Genes+" : "Genes"}</dt>
-          <dd>{detailGeneCount.toLocaleString()}</dd>
+          <dd>{formatCount(detailGeneCount)}</dd>
         </div>
       </dl>
       <label className="check-row term-check">
