@@ -117,6 +117,51 @@ GONetView resolves `CD8A` to the human UniProt annotation record and maps the GO
 
 ![Gene mode with CD8A](assets/gonetview-gene-mode.png)
 
+## Test A Gene List For Enriched Terms
+
+Mapping genes shows where they sit in the ontology. Enrichment answers a different question: which
+GO terms are over-represented in a gene list compared with a background. The two are kept apart on
+purpose, so testing a gene set never disturbs the graph you built.
+
+Open the **Enrichment (ORA)** section and paste a gene list into **Query genes**:
+
+```text
+TP53
+BRCA1
+BRCA2
+ATM
+CHEK2
+RAD51
+MDM2
+CDKN1A
+BAX
+PARP1
+```
+
+In gene mode you can press **Copy the gene list from the graph** instead of retyping it.
+
+Leave the background empty to test against all annotated gene products for the organism, then click
+**Run enrichment**. A table opens under the graph, ranked by false discovery rate, with the genes
+that contributed to each term.
+
+Options worth understanding before you report a number:
+
+- **Smallest and largest term.** Only terms annotated to 5 to 500 background genes are tested by
+  default. Very small terms are noisy and very large ones are uninformative, and both cost power.
+- **Use curated evidence only.** Drops electronic (`IEA`) annotations, which are machine-inferred
+  and never curator-reviewed. For this list it takes the significant terms from 163 to 144.
+- **Reduce redundant parent terms.** GO terms nest, so a significant term and its parents often
+  report the same genes. This keeps the strongest term of each chain, taking 144 terms to 83.
+- **Count complexes and ncRNAs as background genes.** Off by default; GAF files annotate protein
+  complexes and non-coding RNAs, and counting them nearly doubles the human universe.
+
+The line above the table always states the test, the correction, the background, and the filters in
+force, so a figure can be described accurately later.
+
+To turn results into a figure, set **Top hits to map** and press **Map top 15**, or tick individual
+rows and press **Map selected**. The graph rebuilds from those terms and the bar above it reads
+*Showing top 15 enriched terms by FDR*, so it is clear what the picture contains and why.
+
 ## Read The Details Panel
 
 The **Details** panel follows the active GO term. It provides:
