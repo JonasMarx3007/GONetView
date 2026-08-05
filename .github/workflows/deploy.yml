@@ -39,6 +39,9 @@ jobs:
         env:
           VITE_BASE_PATH: /GONetView/
 
+      - name: Copy documentation into the site
+        run: cp -r docs frontend/dist/docs
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
