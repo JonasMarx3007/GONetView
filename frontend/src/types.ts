@@ -60,3 +60,41 @@ export type StatsResponse = {
   source: string;
   generatedAt: string;
 };
+
+export type EnrichmentResult = {
+  term: GOTerm;
+  observed: number;
+  querySize: number;
+  backgroundObserved: number;
+  backgroundSize: number;
+  expected: number;
+  foldEnrichment: number;
+  pValue: number;
+  adjustedPValue: number;
+  genes: GeneRecord[];
+};
+
+export type EnrichmentResponse = {
+  organism: Organism;
+  annotationDate: string | null;
+  queryGenes: GeneRecord[];
+  missingGenes: string[];
+  genesWithoutTerms: GeneRecord[];
+  backgroundMode: "annotated" | "custom";
+  backgroundSize: number;
+  backgroundSources: string[];
+  backgroundKind: "gene-products" | "all-entities";
+  excludedEntities: number;
+  excludedWithoutCuratedEvidence: number;
+  evidenceMode: "all" | "curated";
+  backgroundMissingGenes: string[];
+  outsideBackgroundGenes: GeneRecord[];
+  testedTerms: number;
+  testedTermsByNamespace: Record<string, number>;
+  minTermSize: number;
+  maxTermSize: number;
+  propagated: boolean;
+  redundancyReduced: boolean;
+  redundantTermsRemoved: number;
+  results: EnrichmentResult[];
+};

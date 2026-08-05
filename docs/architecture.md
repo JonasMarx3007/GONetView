@@ -73,6 +73,17 @@ The frontend:
 - renders the network as SVG
 - exports figures as PNG or vector PDF
 
+## Workers
+
+Two pieces of work are heavy enough to freeze a tab, so both run off the main thread:
+
+- Enrichment counting walks every background gene and its propagated ancestors. The main thread
+  sends a compact index once per dataset, and the worker keeps it primed for later runs.
+- Readable layout uses elkjs, which is run through its own worker build. Layout cost grows much
+  faster than graph size, so graphs past roughly 500 nodes use a faster placement profile.
+
+Both have a main-thread fallback, which is also the path the node tests exercise.
+
 ## Core Languages
 
 | Language | Use |
@@ -82,6 +93,13 @@ The frontend:
 | CSS | Responsive app styling. |
 | Python | GO and GAF preprocessing. |
 | JavaScript | Static preview server and frontend tests. |
+
+## Evidence Codes
+
+Preprocessing writes two gene-to-term indexes per organism: the full one, and a second built
+without electronic (`IEA`) annotations. The enrichment option to use curated evidence only picks
+the second index, which keeps the common path unchanged and avoids storing an evidence code on
+every gene-term pair.
 
 ## Local Reproducibility
 

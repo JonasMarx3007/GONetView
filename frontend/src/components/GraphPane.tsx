@@ -1,15 +1,17 @@
 import { Loader2, PanelLeftOpen } from "lucide-react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { edgeKey, type ConnectionGraph } from "../graphConnections";
 import type { LayoutGraph } from "../layout";
 import { wrapName } from "../layout";
 import { PlotLegend } from "./PlotLegend";
 import { namespaceClass, relationClass } from "../theme";
 import type { GraphResponse } from "../types";
+import { formatCount } from "../formatNumber";
 
 type GraphPaneProps = {
   sidebarExpanded: boolean;
   graph: GraphResponse | null;
+  graphSourceNote: string;
   trimConnections: boolean;
   connectionGraph: ConnectionGraph | null;
   selectedTerms: string[];
@@ -33,11 +35,15 @@ type GraphPaneProps = {
   onExpandSidebar: () => void;
   onSelectNode: (id: string) => void;
   onOpenNode: (id: string) => void;
+  enrichmentPanel?: ReactNode;
+  enrichmentCollapsed: boolean;
+  enrichmentPanelHeight: number;
 };
 
 export function GraphPane({
   sidebarExpanded,
   graph,
+  graphSourceNote,
   trimConnections,
   connectionGraph,
   selectedTerms,
@@ -61,9 +67,19 @@ export function GraphPane({
   onExpandSidebar,
   onSelectNode,
   onOpenNode,
+  enrichmentPanel,
+  enrichmentCollapsed,
+  enrichmentPanelHeight,
 }: GraphPaneProps) {
   return (
-    <main className="graph-pane">
+    <main
+      className={`graph-pane ${enrichmentPanel ? "with-enrichment" : ""}`.trim()}
+      style={
+        enrichmentPanel
+          ? { gridTemplateRows: `auto minmax(160px, 1fr) ${enrichmentCollapsed ? "auto" : `${enrichmentPanelHeight}px`}` }
+          : undefined
+      }
+    >
       {!sidebarExpanded && (
         <button
           type="button"
@@ -76,15 +92,16 @@ export function GraphPane({
         </button>
       )}
       <div className={`graph-toolbar ${sidebarExpanded ? "" : "with-floating-toggle"}`.trim()}>
-        <span>{graph ? `${graph.nodes.length.toLocaleString()} nodes / ${graph.edges.length.toLocaleString()} edges` : "Loading GO"}</span>
-        {trimConnections && connectionGraph && <strong>{connectionGraph.nodes.length.toLocaleString()} visible after trim</strong>}
+        <span>{graph ? `${formatCount(graph.nodes.length)} nodes / ${formatCount(graph.edges.length)} edges` : "Loading GO"}</span>
+        {trimConnections && connectionGraph && <strong>{formatCount(connectionGraph.nodes.length)} visible after trim</strong>}
+        {graphSourceNote && <strong className="source-note">Showing {graphSourceNote}</strong>}
         {graph?.truncated && <strong>Limited graph</strong>}
         {selectedTerms.length > 1 && <strong>{selectedTerms.length} selected terms</strong>}
         {graph?.selectedGenes && graph.selectedGenes.length > 0 && <strong>{graph.selectedGenes.length} selected genes</strong>}
         {graph?.missingTerms && graph.missingTerms.length > 0 && <strong>{graph.missingTerms.length} ignored GO terms</strong>}
         {graph?.missingGenes && graph.missingGenes.length > 0 && <strong>{graph.missingGenes.length} ignored genes</strong>}
         {graph?.genesWithoutTerms && graph.genesWithoutTerms.length > 0 && <strong>{graph.genesWithoutTerms.length} genes without GO terms</strong>}
-        {graphSearch.trim() && <strong>{searchMatchIds.size.toLocaleString()} graph search hits</strong>}
+        {graphSearch.trim() && <strong>{formatCount(searchMatchIds.size)} graph search hits</strong>}
         {autoRefreshPending && <strong className="notice">Updating soon</strong>}
         {layoutNotice && <strong className="notice">{layoutNotice}</strong>}
         {error && <strong className="error">{error}</strong>}
@@ -137,7 +154,7 @@ export function GraphPane({
                   </text>
                   {wrapName(node.name).map((line, index, lines) => (
                     <text
-                      key={line}
+                      key={`${index}-${line}`}
                       className="name"
                       x={node.width / 2}
                       y={48 + index * 23 + Math.max(0, 3 - lines.length) * 7}
@@ -152,6 +169,7 @@ export function GraphPane({
           </svg>
         )}
       </div>
+      {enrichmentPanel}
     </main>
   );
 }

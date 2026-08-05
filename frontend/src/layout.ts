@@ -67,7 +67,29 @@ export function layoutGraph(nodes: GOTerm[], edges: GOEdge[]): LayoutGraph {
   return layoutClassicGraph(nodes, edges);
 }
 
-export async function layoutReadableGraph(nodes: GOTerm[], edges: GOEdge[]): Promise<LayoutGraph> {
+// Layered layout cost grows far faster than graph size: on real GO graphs the quality profile
+// takes about 6 s at 465 nodes and 46 s at 901, while the fast profile takes 1.9 s and 9.1 s.
+// Large graphs therefore trade node placement and crossing minimisation for a usable wait.
+export type ReadableLayoutProfile = "quality" | "fast";
+
+const QUALITY_LAYOUT_OPTIONS: Record<string, string> = {
+  "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+  "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+  "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
+  "elk.layered.nodePlacement.bk.edgeStraightening": "IMPROVE_STRAIGHTNESS",
+};
+
+const FAST_LAYOUT_OPTIONS: Record<string, string> = {
+  "elk.layered.thoroughness": "1",
+  "elk.layered.crossingMinimization.strategy": "INTERACTIVE",
+  "elk.layered.nodePlacement.strategy": "SIMPLE",
+};
+
+export async function layoutReadableGraph(
+  nodes: GOTerm[],
+  edges: GOEdge[],
+  profile: ReadableLayoutProfile = "quality",
+): Promise<LayoutGraph> {
   if (nodes.length === 0) {
     return { nodes: [], edges: [], width: 0, height: 0 };
   }
@@ -100,13 +122,10 @@ export async function layoutReadableGraph(nodes: GOTerm[], edges: GOEdge[]): Pro
       "elk.layered.spacing.nodeNodeBetweenLayers": "76",
       "elk.layered.spacing.edgeNodeBetweenLayers": "18",
       "elk.layered.spacing.edgeEdgeBetweenLayers": "20",
-      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
-      "elk.layered.nodePlacement.bk.edgeStraightening": "IMPROVE_STRAIGHTNESS",
       "elk.layered.mergeEdges": "false",
       "elk.layered.unnecessaryBendpoints": "true",
+      ...(profile === "fast" ? FAST_LAYOUT_OPTIONS : QUALITY_LAYOUT_OPTIONS),
     },
     children: [...nodes]
       .sort((a, b) => (a.level ?? 0) - (b.level ?? 0) || a.id.localeCompare(b.id))
@@ -159,9 +178,23 @@ export async function layoutReadableGraph(nodes: GOTerm[], edges: GOEdge[]): Pro
   };
 }
 
+// ELK is the expensive part of a readable layout, so it runs in its own worker through elkjs's
+// worker API. The bundled in-process build stays as a fallback where workers are unavailable.
 async function loadElk(): Promise<ElkLike> {
-  elkPromise ??= import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK() as ElkLike);
+  elkPromise ??= createWorkerElk().catch(() =>
+    import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK() as ElkLike),
+  );
   return elkPromise;
+}
+
+async function createWorkerElk(): Promise<ElkLike> {
+  if (typeof Worker === "undefined") {
+    throw new Error("Workers are unavailable.");
+  }
+  const { default: ELK } = await import("elkjs/lib/elk-api.js");
+  return new ELK({
+    workerFactory: () => new Worker(new URL("elkjs/lib/elk-worker.min.js", import.meta.url), { type: "classic" }),
+  }) as ElkLike;
 }
 
 function layoutClassicGraph(nodes: GOTerm[], edges: GOEdge[]): LayoutGraph {

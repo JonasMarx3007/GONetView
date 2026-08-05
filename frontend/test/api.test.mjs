@@ -18,7 +18,7 @@ globalThis.fetch = async (url) => {
   };
 };
 
-const { fetchFocusedGraph, fetchOrganisms, fetchStats, searchGenes, searchTerms } = await import("../.test-build/api.js");
+const { fetchEnrichment, fetchFocusedGraph, fetchOrganisms, fetchStats, searchGenes, searchTerms } = await import("../.test-build/api.js");
 
 test("api functions load static browser data and build relation-filtered GO graphs", async () => {
   loadApiFixtures();
@@ -64,6 +64,52 @@ test("api functions resolve gene aliases to GO terms", async () => {
     () => fetchFocusedGraph("gene", ["GENEB"], "mini", 1, 0, "", false, 20, false, ["is_a"]),
     /Genes were found but have no GO annotations in Mini organism: GENEB/,
   );
+});
+
+test("api functions calculate propagated enrichment against the annotated background", async () => {
+  loadApiFixtures();
+
+  const enrichment = await fetchEnrichment(["GENEA"], [], "mini", "", false, true, 1, 0);
+  assert.equal(enrichment.queryGenes.length, 1);
+  assert.equal(enrichment.backgroundSize, 2);
+  assert.deepEqual(enrichment.backgroundSources, ["UniProtKB"]);
+  assert.equal(enrichment.excludedEntities, 2);
+  assert.equal(enrichment.testedTerms, 3);
+  assert.deepEqual(enrichment.results.map((result) => result.term.id), ["GO:0000001", "GO:0000002", "GO:0000003"]);
+  assert.ok(enrichment.results.every((result) => result.observed === 1 && result.backgroundObserved === 1));
+  assert.ok(enrichment.results.every((result) => Math.abs(result.pValue - 0.5) < 1e-12));
+
+  const directOnly = await fetchEnrichment(["GENEA"], [], "mini", "", false, false, 1, 0);
+  assert.deepEqual(directOnly.results.map((result) => result.term.id), ["GO:0000003"]);
+});
+
+test("api functions keep complexes and ncRNA entities out of the enrichment universe by default", async () => {
+  loadApiFixtures();
+
+  const geneProducts = await fetchEnrichment(["GENEA"], [], "mini", "", false, true, 1, 0);
+  assert.equal(geneProducts.backgroundSize, 2);
+  assert.equal(geneProducts.excludedEntities, 2);
+
+  assert.equal(geneProducts.backgroundKind, "gene-products");
+  assert.deepEqual(geneProducts.backgroundSources, ["UniProtKB"]);
+
+  // A custom background is taken exactly as given, so it is the way to include those objects.
+  const everything = await fetchEnrichment(["GENEA"], ["GENEA", "GENEB", "NCR1", "CPX1"], "mini", "", false, true, 1, 0);
+  assert.equal(everything.backgroundSize, 4);
+  assert.equal(everything.excludedEntities, 0);
+  assert.equal(everything.backgroundKind, "all-entities");
+  assert.deepEqual(everything.backgroundSources, ["ComplexPortal", "RNAcentral", "UniProtKB"]);
+
+  // The wider universe makes the same hit look more significant, which is the bias being fixed.
+  const narrow = geneProducts.results.find((result) => result.term.id === "GO:0000003");
+  const wide = everything.results.find((result) => result.term.id === "GO:0000003");
+  assert.ok(wide.pValue < narrow.pValue);
+  assert.ok(wide.foldEnrichment > narrow.foldEnrichment);
+
+  // A custom background is taken as given, so nothing is filtered out of it.
+  const custom = await fetchEnrichment(["GENEA"], ["GENEA", "GENEB", "NCR1"], "mini", "", false, true, 1, 0);
+  assert.equal(custom.backgroundSize, 3);
+  assert.equal(custom.excludedEntities, 0);
 });
 
 function loadApiFixtures() {
@@ -128,6 +174,24 @@ function loadApiFixtures() {
       taxon: "taxon:9606",
       termCount: 0,
     },
+    {
+      key: "RNAcentral:R1",
+      db: "RNAcentral",
+      objectId: "R1",
+      symbol: "NCR1",
+      name: "Non-coding RNA 1",
+      taxon: "taxon:9606",
+      termCount: 1,
+    },
+    {
+      key: "ComplexPortal:CPX-1",
+      db: "ComplexPortal",
+      objectId: "CPX-1",
+      symbol: "CPX1",
+      name: "Mini complex",
+      taxon: "taxon:9606",
+      termCount: 1,
+    },
   ]);
   responses.set("/data/annotations/mini/gene-search.json", [
     {
@@ -151,17 +215,24 @@ function loadApiFixtures() {
       search: "geneb p2 uniprotkb:p2 gene b",
     },
   ]);
+  // The ncRNA and complex entities carry their own annotations, so counting them as genes
+  // grows the universe without adding hits to the term the query gene belongs to.
   responses.set("/data/annotations/mini/term-to-genes.json", {
+    "GO:0000001": ["RNAcentral:R1", "ComplexPortal:CPX-1"],
     "GO:0000002": ["UniProtKB:P1"],
     "GO:0000003": ["UniProtKB:P1"],
   });
   responses.set("/data/annotations/mini/gene-to-terms.json", {
     "UniProtKB:P1": ["GO:0000003"],
     "UniProtKB:P2": [],
+    "RNAcentral:R1": ["GO:0000001"],
+    "ComplexPortal:CPX-1": ["GO:0000001"],
   });
   responses.set("/data/annotations/mini/aliases.json", {
     GENEA: ["UniProtKB:P1"],
     GENEB: ["UniProtKB:P2"],
+    NCR1: ["RNAcentral:R1"],
+    CPX1: ["ComplexPortal:CPX-1"],
     P1: ["UniProtKB:P1"],
     P2: ["UniProtKB:P2"],
   });
