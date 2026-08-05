@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 
-def gaf_row(object_id: str, symbol: str, go_id: str, synonyms: str = "") -> str:
+def gaf_row(object_id: str, symbol: str, go_id: str, synonyms: str = "", evidence: str = "IDA") -> str:
     return "\t".join(
         [
             "UniProtKB",
@@ -16,7 +16,7 @@ def gaf_row(object_id: str, symbol: str, go_id: str, synonyms: str = "") -> str:
             "",
             go_id,
             "PMID:1",
-            "IDA",
+            evidence,
             "",
             "P",
             f"{symbol} name",
@@ -32,7 +32,7 @@ def gaf_row(object_id: str, symbol: str, go_id: str, synonyms: str = "") -> str:
 
 
 class PreprocessDataTests(unittest.TestCase):
-    def test_preprocess_writes_static_browser_indexes_and_gzip_sidecars(self) -> None:
+    def test_preprocess_writes_static_browser_indexes_split_by_evidence(self) -> None:
         repo = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -65,6 +65,7 @@ relationship: part_of GO:0000001
                 handle.write("!date-generated: 2026-05-18\n")
                 handle.write(gaf_row("P1", "GENE1", "GO:0000001", "ALPHA") + "\n")
                 handle.write(gaf_row("P1", "GENE1", "GO:0000002", "ALPHA") + "\n")
+                handle.write(gaf_row("P2", "GENE2", "GO:0000002", "BETA", "IEA") + "\n")
 
             completed = subprocess.run(
                 [
@@ -92,6 +93,7 @@ relationship: part_of GO:0000001
             aliases = read_json(output / "annotations" / "mini" / "aliases.json")
             term_to_genes = read_json(output / "annotations" / "mini" / "term-to-genes.json")
             gene_to_terms = read_json(output / "annotations" / "mini" / "gene-to-terms.json")
+            curated = read_json(output / "annotations" / "mini" / "gene-to-terms-experimental.json")
 
             self.assertEqual(ontology_manifest["stats"]["dataVersion"], "test-release")
             self.assertEqual(ontology_manifest["stats"]["terms"], 2)
@@ -102,12 +104,22 @@ relationship: part_of GO:0000001
             self.assertEqual(annotation_manifest["dateGenerated"], "2026-05-18")
             self.assertEqual(genes[0]["termCount"], 2)
             self.assertEqual(aliases["GENE1"], ["UniProtKB:P1"])
-            self.assertEqual(term_to_genes["GO:0000002"], ["UniProtKB:P1"])
+            self.assertEqual(term_to_genes["GO:0000002"], ["UniProtKB:P1", "UniProtKB:P2"])
             self.assertEqual(gene_to_terms["UniProtKB:P1"], ["GO:0000001", "GO:0000002"])
 
-            with gzip.open(output / "go" / "terms.json.gz", "rt", encoding="utf-8") as handle:
-                self.assertEqual(json.load(handle), terms)
-            self.assertTrue((output / "annotations" / "mini" / "aliases.json.gz").exists())
+            # Electronic annotations stay out of the curated index but remain in the full one.
+            self.assertEqual(gene_to_terms["UniProtKB:P2"], ["GO:0000002"])
+            self.assertNotIn("UniProtKB:P2", curated)
+            self.assertEqual(curated["UniProtKB:P1"], ["GO:0000001", "GO:0000002"])
+            self.assertEqual(annotation_manifest["evidence"], {"annotatedGenes": 2, "genesWithCuratedEvidence": 1})
+            self.assertEqual(
+                annotation_manifest["files"]["geneToTermsExperimental"],
+                "annotations/mini/gene-to-terms-experimental.json",
+            )
+
+            # Nothing requests the gzip sidecars, so they are no longer written.
+            self.assertEqual(sorted(path.name for path in (output / "go").glob("*.gz")), [])
+            self.assertEqual(sorted(path.name for path in (output / "annotations" / "mini").glob("*.gz")), [])
 
 
 def read_json(path: Path) -> object:
