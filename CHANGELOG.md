@@ -2,7 +2,7 @@
 
 All notable changes to GONetView are tracked here.
 
-## Unreleased
+## 0.2.0 - 2026-08-05
 
 - Added GO over-representation analysis (ORA) with a one-sided hypergeometric test and Benjamini-Hochberg correction applied within each namespace.
 - Gave enrichment its own gene list, separate from the graph query, so mapping genes and testing a gene set no longer interfere.
